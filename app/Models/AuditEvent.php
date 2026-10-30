@@ -51,3 +51,4 @@ class AuditEvent extends Model
         return $this->belongsTo(User::class, 'actor_id');
     }
 }
+

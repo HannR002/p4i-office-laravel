@@ -45,3 +45,4 @@ class LetterType extends Model
         return $this->hasMany(Letter::class);
     }
 }
+

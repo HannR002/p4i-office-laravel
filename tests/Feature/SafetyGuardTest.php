@@ -90,3 +90,4 @@ class SafetyGuardTest extends TestCase
         $this->assertFalse($policy->legacy_reconciled);
     }
 }
+

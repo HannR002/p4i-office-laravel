@@ -62,3 +62,4 @@ class SignatoryMandate extends Model
             && $this->valid_to->format('Y-m-d') >= $today;
     }
 }
+

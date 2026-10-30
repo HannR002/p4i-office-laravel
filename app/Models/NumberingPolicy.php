@@ -40,3 +40,4 @@ class NumberingPolicy extends Model
         return $this->hasMany(LetterType::class);
     }
 }
+

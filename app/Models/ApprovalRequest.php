@@ -56,3 +56,4 @@ class ApprovalRequest extends Model
         return $this->hasMany(ApprovalStep::class)->orderBy('step_no', 'asc');
     }
 }
+

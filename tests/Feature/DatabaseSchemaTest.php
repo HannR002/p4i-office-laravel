@@ -260,3 +260,4 @@ class DatabaseSchemaTest extends TestCase
         $audit->delete();
     }
 }
+

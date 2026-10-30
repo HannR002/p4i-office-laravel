@@ -8,3 +8,4 @@ class StaleRevisionException extends RuntimeException
 {
     //
 }
+

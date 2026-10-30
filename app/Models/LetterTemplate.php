@@ -38,3 +38,4 @@ class LetterTemplate extends Model
         return $this->belongsTo(LetterType::class);
     }
 }
+
