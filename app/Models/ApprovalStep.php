@@ -56,4 +56,3 @@ class ApprovalStep extends Model
         return $this->belongsTo(SignatoryMandate::class, 'mandate_id');
     }
 }
-

@@ -12,6 +12,7 @@ class LetterStatusHistory extends Model
     use HasFactory, HasUuids;
 
     public $timestamps = false;
+
     protected $table = 'letter_status_history';
 
     protected $fillable = [
@@ -45,4 +46,3 @@ class LetterStatusHistory extends Model
         return $this->belongsTo(User::class, 'actor_id');
     }
 }
-

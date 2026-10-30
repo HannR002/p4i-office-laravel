@@ -83,4 +83,3 @@ class Letter extends Model
         return $this->hasMany(LetterStatusHistory::class)->orderBy('created_at', 'asc');
     }
 }
-

@@ -14,6 +14,7 @@ class AuthWorkflowTest extends TestCase
     use RefreshDatabase;
 
     private Organization $org;
+
     private Role $role;
 
     protected function setUp(): void

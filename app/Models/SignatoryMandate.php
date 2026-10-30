@@ -57,9 +57,9 @@ class SignatoryMandate extends Model
     public function isValidNow(): bool
     {
         $today = now()->format('Y-m-d');
-        return $this->status === 'ACTIVE' 
-            && $this->valid_from->format('Y-m-d') <= $today 
+
+        return $this->status === 'ACTIVE'
+            && $this->valid_from->format('Y-m-d') <= $today
             && $this->valid_to->format('Y-m-d') >= $today;
     }
 }
-

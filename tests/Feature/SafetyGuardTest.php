@@ -23,7 +23,7 @@ class SafetyGuardTest extends TestCase
 
     public function test_allocate_official_number_throws_blocked_exception(): void
     {
-        $service = new LetterNumberingService();
+        $service = new LetterNumberingService;
 
         $this->expectException(OfficialNumberingBlockedException::class);
         $this->expectExceptionMessage('BLOCKED: Penomoran surat resmi terkunci mutlak');
@@ -90,4 +90,3 @@ class SafetyGuardTest extends TestCase
         $this->assertFalse($policy->legacy_reconciled);
     }
 }
-

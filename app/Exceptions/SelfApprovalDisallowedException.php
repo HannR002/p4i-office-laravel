@@ -8,4 +8,3 @@ class SelfApprovalDisallowedException extends RuntimeException
 {
     //
 }
-

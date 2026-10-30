@@ -8,4 +8,3 @@ class InvalidMandateException extends RuntimeException
 {
     //
 }
-

@@ -2,6 +2,7 @@
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
@@ -240,6 +241,49 @@ return new class extends Migration
 
             $table->index(['organization_id', 'occurred_at']);
         });
+
+        // 16. Engine-Level Immutability Triggers (MariaDB/MySQL)
+        if (DB::getDriverName() === 'mysql') {
+            DB::unprepared("
+                CREATE TRIGGER trg_letter_revisions_no_update
+                BEFORE UPDATE ON letter_revisions
+                FOR EACH ROW
+                BEGIN
+                    SIGNAL SQLSTATE '45000'
+                    SET MESSAGE_TEXT = 'Letter revisions are strictly immutable and cannot be updated.';
+                END;
+            ");
+
+            DB::unprepared("
+                CREATE TRIGGER trg_letter_revisions_no_delete
+                BEFORE DELETE ON letter_revisions
+                FOR EACH ROW
+                BEGIN
+                    SIGNAL SQLSTATE '45000'
+                    SET MESSAGE_TEXT = 'Letter revisions are strictly immutable and cannot be deleted.';
+                END;
+            ");
+
+            DB::unprepared("
+                CREATE TRIGGER trg_audit_events_no_update
+                BEFORE UPDATE ON audit_events
+                FOR EACH ROW
+                BEGIN
+                    SIGNAL SQLSTATE '45000'
+                    SET MESSAGE_TEXT = 'Audit events are strictly append-only and cannot be updated.';
+                END;
+            ");
+
+            DB::unprepared("
+                CREATE TRIGGER trg_audit_events_no_delete
+                BEFORE DELETE ON audit_events
+                FOR EACH ROW
+                BEGIN
+                    SIGNAL SQLSTATE '45000'
+                    SET MESSAGE_TEXT = 'Audit events are strictly append-only and cannot be deleted.';
+                END;
+            ");
+        }
     }
 
     /**
@@ -247,6 +291,13 @@ return new class extends Migration
      */
     public function down(): void
     {
+        if (DB::getDriverName() === 'mysql') {
+            DB::unprepared('DROP TRIGGER IF EXISTS trg_audit_events_no_delete');
+            DB::unprepared('DROP TRIGGER IF EXISTS trg_audit_events_no_update');
+            DB::unprepared('DROP TRIGGER IF EXISTS trg_letter_revisions_no_delete');
+            DB::unprepared('DROP TRIGGER IF EXISTS trg_letter_revisions_no_update');
+        }
+
         Schema::dropIfExists('audit_events');
         Schema::dropIfExists('letter_status_history');
         Schema::dropIfExists('approval_steps');
@@ -264,4 +315,3 @@ return new class extends Migration
         Schema::dropIfExists('organizations');
     }
 };
-

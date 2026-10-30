@@ -24,7 +24,7 @@ class LetterController extends Controller
         // Kerahasiaan (CONFIDENTIAL isolation)
         if ($letter->classification === 'CONFIDENTIAL') {
             $user = Auth::user();
-            if ($user->id !== $letter->author_id && !$user->isSystemAdmin()) {
+            if ($user->id !== $letter->author_id && ! $user->isSystemAdmin()) {
                 abort(403, 'Akses ditolak: Surat ini bersifat RAHASIA (CONFIDENTIAL).');
             }
         }

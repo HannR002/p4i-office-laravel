@@ -13,7 +13,7 @@ class ApprovalController extends Controller
         $user = Auth::user();
 
         // Hanya peran REVIEWER, PENGURUS_YAYASAN, atau SYSTEM_ADMIN yang memiliki akses ke antrean pemeriksaan
-        if (!$user->hasRole('REVIEWER') && !$user->hasRole('PENGURUS_YAYASAN') && !$user->isSystemAdmin()) {
+        if (! $user->hasRole('REVIEWER') && ! $user->hasRole('PENGURUS_YAYASAN') && ! $user->isSystemAdmin()) {
             abort(403, 'Akses ditolak: Hanya reviewer berwenang atau pengurus yayasan yang dapat mengakses antrean pemeriksaan.');
         }
 

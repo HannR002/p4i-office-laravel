@@ -43,4 +43,3 @@ class OrgUnit extends Model
         return $this->hasMany(User::class, 'unit_id');
     }
 }
-

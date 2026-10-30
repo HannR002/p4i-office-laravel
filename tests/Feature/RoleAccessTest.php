@@ -14,8 +14,11 @@ class RoleAccessTest extends TestCase
     use RefreshDatabase;
 
     private Organization $org;
+
     private Role $roleStaff;
+
     private Role $roleReviewer;
+
     private Role $roleAdmin;
 
     protected function setUp(): void

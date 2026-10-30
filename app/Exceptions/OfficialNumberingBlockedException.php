@@ -8,4 +8,3 @@ class OfficialNumberingBlockedException extends RuntimeException
 {
     //
 }
-

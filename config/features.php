@@ -12,4 +12,3 @@ return [
     */
     'official_numbering_active' => env('FEATURE_NUMBERING_ACTIVE', false),
 ];
-
