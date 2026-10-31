@@ -17,9 +17,9 @@
             @csrf
 
             <div>
-                <label class="block text-xs font-bold text-slate-700 mb-1">Pilih Berkas CSV / Text (*.csv, *.txt) *</label>
-                <input type="file" name="register_file" required accept=".csv,.txt" class="w-full text-xs text-slate-500 file:mr-4 file:py-2.5 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500">
-                <p class="text-[11px] text-slate-400 mt-1.5">Maksimum ukuran berkas: 5 MB. Format kolom tajuk (header): <code class="bg-slate-100 px-1 py-0.5 rounded text-indigo-700 font-mono">nomor_surat,tanggal,jenis,penerima,perihal</code></p>
+                <label class="block text-xs font-bold text-slate-700 mb-1">Pilih Berkas Spreadsheet (*.csv, *.xlsx, *.txt) *</label>
+                <input type="file" name="register_file" required accept=".csv,.xlsx,.txt" class="w-full text-xs text-slate-500 file:mr-4 file:py-2.5 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500">
+                <p class="text-[11px] text-slate-400 mt-1.5">Maksimum ukuran berkas: 5 MB (Mendukung format CSV & Excel XLSX murni tanpa macro/formula). Format kolom tajuk (header): <code class="bg-slate-100 px-1 py-0.5 rounded text-indigo-700 font-mono">nomor_surat,tanggal,jenis,penerima,perihal,lokasi_berkas</code></p>
             </div>
 
             <div>

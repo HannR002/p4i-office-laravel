@@ -7,15 +7,15 @@
         <div>
             <div class="flex items-center gap-2">
                 <span class="text-xs px-2.5 py-1 rounded-full font-bold bg-rose-100 text-rose-800 border border-rose-300">
-                    LAPORAN RESMI KESIAPAN PERSURATAN (NR-16)
+                    LAPORAN AUDIT PRE-AKTIVASI (BR-11, BR-12)
                 </span>
                 <span class="text-xs px-2.5 py-1 rounded-full font-semibold bg-slate-100 text-slate-700">
-                    SPRINT M3A
+                    SPRINT M3B
                 </span>
             </div>
-            <h1 class="text-xl font-bold text-slate-900 mt-2">Evaluasi Kesiapan Penerbitan Persuratan Resmi</h1>
+            <h1 class="text-xl font-bold text-slate-900 mt-2">Evaluasi Kesiapan Pra-Aktivasi Persuratan Resmi</h1>
             <p class="text-xs text-slate-500 mt-1">
-                Laporan objektif tanpa klaim semu terhadap 4 pilar kesiapan hukum, register historis, mandat pejabat, dan proteksi keamanan sistem.
+                Laporan objektif tanpa klaim semu terhadap 8 pilar kesiapan hukum, register historis, mandat pejabat, prosedur pemulihan bencana, dan kepatuhan hosting.
             </p>
         </div>
 
@@ -31,27 +31,27 @@
             <div class="space-y-2">
                 <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/20 text-white text-xs font-bold tracking-wider uppercase backdrop-blur-sm">
                     <span>⛔ STATUS KESELURUHAN:</span>
-                    <span class="text-amber-300">{{ $report['overall_status'] }} (DIBLOKIR DARI PRODUKSI)</span>
+                    <span class="text-amber-300 font-mono">{{ $report['overall_status'] }} (DIBLOKIR DARI PRODUKSI)</span>
                 </div>
                 <h2 class="text-2xl font-black tracking-tight text-white">
                     Penerbitan Nomor Resmi Belum Diizinkan
                 </h2>
                 <p class="text-xs text-rose-100 max-w-2xl leading-relaxed">
-                    Sistem mendeteksi bahwa prasyarat administratif legal dan rekonsiliasi arsip historis belum terpenuhi. Tidak ada nomor surat resmi yang dapat dialokasikan pada lingkungan sistem saat ini.
+                    Sistem mendeteksi bahwa prasyarat administratif legal yayasan, rekonsiliasi arsip fisik lama, dan pengesahan mandat penandatangan belum disahkan secara formal oleh Pengurus Yayasan P4I. Kolom <code class="font-mono bg-rose-950 px-1 py-0.5 rounded text-amber-300">letters.official_number</code> secara permanen terkunci bernilai <strong>NULL</strong>.
                 </p>
             </div>
 
-            <div class="bg-white/10 p-4 rounded-xl border border-white/20 text-center min-w-[180px] backdrop-blur-sm">
-                <div class="text-[11px] text-rose-200 uppercase font-semibold">Tingkat Kesiapan</div>
-                <div class="text-3xl font-black text-amber-300 my-1">25%</div>
-                <div class="text-[10px] text-rose-200">1 dari 4 Pilar Terpenuhi</div>
+            <div class="bg-white/10 p-5 rounded-xl border border-white/20 text-center min-w-[200px] backdrop-blur-sm">
+                <div class="text-[11px] text-rose-200 uppercase font-semibold">Tingkat Kesiapan Sistem</div>
+                <div class="text-4xl font-black text-amber-300 my-1">{{ $report['readiness_percentage'] }}%</div>
+                <div class="text-[10px] text-rose-200">{{ $report['passed_pillars'] }} dari {{ $report['total_pillars'] }} Pilar Terpenuhi</div>
             </div>
         </div>
 
         <!-- Daftar Pemicu Blokir (Blocking Reasons) -->
         @if(!empty($report['blocking_reasons']))
         <div class="mt-6 pt-5 border-t border-rose-700/60">
-            <div class="text-xs font-bold text-amber-300 uppercase tracking-wide mb-2">Faktor Penentu Blokir (Prasyarat Wajib):</div>
+            <div class="text-xs font-bold text-amber-300 uppercase tracking-wide mb-2">Faktor Penentu Blokir (Prasyarat Wajib Menuju Produksi):</div>
             <ul class="space-y-1.5 text-xs text-rose-100">
                 @foreach($report['blocking_reasons'] as $reason)
                 <li class="flex items-start gap-2">
@@ -64,34 +64,34 @@
         @endif
     </div>
 
-    <!-- 4 Pilar Evaluasi Kesiapan -->
+    <!-- 8 Pilar Evaluasi Kesiapan (Grid 2 Kolom) -->
     <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
         @foreach($report['pillars'] as $pillar)
         <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between">
             <div>
-                <div class="flex items-center justify-between mb-3">
+                <div class="flex items-center justify-between mb-2">
                     <h3 class="text-xs font-bold text-slate-800">{{ $pillar['title'] }}</h3>
                     @if($pillar['status'] === 'VERIFIED')
                         <span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
                             TERPENUHI (VERIFIED)
                         </span>
-                    @elseif($pillar['status'] === 'SECURE_OFF')
-                        <span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
-                            AMAN (SECURE OFF)
+                    @elseif($pillar['status'] === 'CONFLICT')
+                        <span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-300">
+                            BERKONFLIK (CONFLICT)
                         </span>
-                    @elseif($pillar['status'] === 'SIMULATION_ONLY')
+                    @elseif($pillar['status'] === 'IN_PROGRESS')
                         <span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
-                            SIMULASI (NON-DEFINITIF)
-                        </span>
-                    @elseif($pillar['status'] === 'DISCREPANCIES_FOUND' || $pillar['status'] === 'IN_PROGRESS')
-                        <span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
-                            PERLU REKONSILIASI
+                            PROSES REKONSILIASI
                         </span>
                     @else
                         <span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-300">
                             DIBLOKIR (BLOCKED)
                         </span>
                     @endif
+                </div>
+
+                <div class="text-[11px] font-mono text-indigo-700 bg-indigo-50/60 p-2 rounded-lg border border-indigo-100 mb-2">
+                    Ref Dokumen: <strong class="text-slate-900">{{ $pillar['document_ref'] ?? '-' }}</strong>
                 </div>
 
                 <p class="text-xs text-slate-600 leading-relaxed">
@@ -109,11 +109,12 @@
 
     <!-- Rekomendasi Administratif untuk Dewan Pengurus Yayasan P4I -->
     <div class="bg-slate-50 p-6 rounded-2xl border border-slate-200">
-        <h3 class="text-xs font-bold uppercase tracking-wider text-slate-700 mb-2">📌 Rekomendasi Tindak Lanjut Menuju Sprint M3B & Produksi</h3>
+        <h3 class="text-xs font-bold uppercase tracking-wider text-slate-700 mb-2">📌 Lembar Keputusan Administratif Dewan Pengurus Yayasan P4I</h3>
         <div class="space-y-2 text-xs text-slate-600 leading-relaxed">
-            <p>1. <strong>Untuk Ketua & Dewan Pengurus Yayasan P4I:</strong> Menetapkan dan menandatangani Surat Keputusan (SK) Standar Prosedur Operasional Penomoran Surat Resmi serta SK Pengangkatan Pejabat Penelaah/Penandatangan Definitif.</p>
-            <p>2. <strong>Untuk Tim Arsiparis Yayasan:</strong> Menyelesaikan verifikasi baris konflik pada tabel staging register historis agar nomor urut baseline dapat direkonsiliasi.</p>
-            <p>3. <strong>Untuk Tim Auditor GPT-6:</strong> Memverifikasi bahwa tidak ada celah bypass penomoran resmi sebelum sprint penomoran definitif dibuka.</p>
+            <p>1. <strong>Pengesahan SOP Penomoran Resmi:</strong> Menandatangani Surat Keputusan (SK) Standar Operasional Prosedur Penomoran Surat Resmi sesuai draf lembar kerja pada <code class="font-mono text-indigo-700">docs/numbering-sop-decision-worksheet.md</code>.</p>
+            <p>2. <strong>Penyelesaian Rekonsiliasi Arsip Historis:</strong> Menyelesaikan berita acara terhadap 2 nomor surat berkonflik pada buku register fisik lama agar counter awal dapat direkonsiliasi.</p>
+            <p>3. <strong>Pengesahan Mandat Pejabat Definitif:</strong> Menerbitkan SK penetapan nama pejabat penelaah dan penandatangan yang sah untuk menggantikan akun simulasi teknis.</p>
+            <p>4. <strong>Larangan Aktivasi Sepihak:</strong> Modul penomoran resmi yayasan tetap terkunci (OFF) hingga audit independen GPT-6 dan tanda tangan berita acara pengurus yayasan selesai dilaksanakan.</p>
         </div>
     </div>
 </div>

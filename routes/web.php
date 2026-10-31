@@ -69,12 +69,13 @@ Route::middleware(['auth', 'active.user'])->group(function () {
     Route::post('/numbering/preview', [NumberingPolicyController::class, 'preview'])->name('numbering.preview');
     Route::post('/numbering/simulate', [NumberingPolicyController::class, 'simulate'])->name('numbering.simulate');
 
-    // Modul Staging Register Historis (Sprint M3A)
+    // Modul Staging Register Historis (Sprint M3A & M3B)
     Route::get('/legacy-registers', [LegacyRegisterController::class, 'index'])->name('legacy.index');
     Route::get('/legacy-registers/create', [LegacyRegisterController::class, 'create'])->name('legacy.create');
     Route::post('/legacy-registers', [LegacyRegisterController::class, 'store'])->name('legacy.store');
     Route::get('/legacy-registers/{id}', [LegacyRegisterController::class, 'show'])->name('legacy.show');
     Route::post('/legacy-registers/{id}/verify', [LegacyRegisterController::class, 'verify'])->name('legacy.verify');
+    Route::post('/legacy-registers/rows/{row}/reconcile', [LegacyRegisterController::class, 'reconcileRow'])->name('legacy.rows.reconcile');
 
     // Modul Buku Agenda Ganda (Sprint M3A)
     Route::get('/agenda/outgoing', [AgendaController::class, 'outgoing'])->name('agenda.outgoing');

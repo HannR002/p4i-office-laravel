@@ -238,7 +238,7 @@ class LegacyRegisterImportTest extends TestCase
         $exeFile = UploadedFile::fake()->create('malicious.exe', 100);
 
         $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage('Berkas harus berekstensi .csv atau .txt');
+        $this->expectExceptionMessage('Berkas harus berekstensi .csv, .txt, atau .xlsx');
 
         $service = app(LegacyRegisterService::class);
         $service->importCsv($this->staff, $exeFile);

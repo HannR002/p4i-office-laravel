@@ -2,6 +2,7 @@
 
 namespace Database\Seeders;
 
+use App\Models\AgendaPolicy;
 use App\Models\ApprovalRequest;
 use App\Models\ApprovalStep;
 use App\Models\IncomingLetter;
@@ -15,6 +16,7 @@ use App\Models\LetterType;
 use App\Models\NumberingPolicy;
 use App\Models\Organization;
 use App\Models\OrgUnit;
+use App\Models\ReconciliationAuditLog;
 use App\Models\Role;
 use App\Models\SignatoryMandate;
 use App\Models\User;
@@ -513,7 +515,7 @@ class DatabaseSeeder extends Seeder
         );
 
         if ($batch->rows()->count() === 0) {
-            LegacyRegisterRow::create([
+            $row1 = LegacyRegisterRow::create([
                 'batch_id' => $batch->id,
                 'row_index' => 1,
                 'raw_number' => '001/P4I/I/2024',
@@ -522,8 +524,23 @@ class DatabaseSeeder extends Seeder
                 'letter_type_code' => 'SURAT_KELUAR',
                 'recipient' => 'Dinas Pendidikan Provinsi Jawa Barat',
                 'subject' => 'Permohonan Kerjasama Riset Analisis Kebijakan Daerah',
+                'source_location' => 'Buku Register Fisik No. 04/2024 Hal. 12',
+                'provenance_year' => 2024,
+                'provenance_series' => 'SURAT_KELUAR',
                 'is_valid' => true,
-                'verification_status' => 'UNVERIFIED',
+                'verification_status' => 'VERIFIED',
+                'reconciliation_action' => 'RETAIN_AS_IS',
+                'reconciliation_notes' => 'Fisik naskah terarsip utuh dan sah sesuai verifikasi panitia arsip.',
+                'board_resolution_ref' => 'BA-REKONSILIASI-01/P4I/2026',
+            ]);
+
+            ReconciliationAuditLog::create([
+                'row_id' => $row1->id,
+                'user_id' => $admin->id,
+                'previous_status' => 'UNVERIFIED',
+                'new_status' => 'VERIFIED',
+                'action_taken' => 'RETAIN_AS_IS',
+                'notes' => 'Fisik naskah terarsip utuh dan sah sesuai verifikasi panitia arsip.',
             ]);
 
             LegacyRegisterRow::create([
@@ -535,11 +552,14 @@ class DatabaseSeeder extends Seeder
                 'letter_type_code' => 'SURAT_TUGAS',
                 'recipient' => 'Dr. Hendra Wijaya',
                 'subject' => 'Surat Tugas Pendampingan Evaluasi Pembangunan Daerah',
+                'source_location' => 'Buku Register Fisik No. 04/2024 Hal. 14',
+                'provenance_year' => 2024,
+                'provenance_series' => 'SURAT_TUGAS',
                 'is_valid' => true,
                 'verification_status' => 'UNVERIFIED',
             ]);
 
-            LegacyRegisterRow::create([
+            $row3 = LegacyRegisterRow::create([
                 'batch_id' => $batch->id,
                 'row_index' => 3,
                 'raw_number' => '002/P4I/I/2024',
@@ -548,10 +568,25 @@ class DatabaseSeeder extends Seeder
                 'letter_type_code' => 'SURAT_KELUAR',
                 'recipient' => 'Universitas Padjadjaran',
                 'subject' => 'Undangan FGD Diseminasi Riset Kebijakan',
+                'source_location' => 'Buku Register Fisik No. 04/2024 Hal. 15',
+                'provenance_year' => 2024,
+                'provenance_series' => 'SURAT_KELUAR',
                 'is_valid' => false,
                 'conflict_type' => 'DUPLICATE_NUMBER',
                 'conflict_details' => "Nomor '002/P4I/I/2024' terduplikasi dalam batch impor yang sama (baris 2).",
-                'verification_status' => 'UNVERIFIED',
+                'verification_status' => 'CONFLICT',
+                'reconciliation_action' => 'FLAGGED_FOR_BOARD',
+                'reconciliation_notes' => 'Duplikasi nomor register fisik 002/P4I/I/2024 dilaporkan ke Dewan Pengurus untuk penetapan surat resmi.',
+                'board_resolution_ref' => 'MEMO-PENGURUS-2026-03',
+            ]);
+
+            ReconciliationAuditLog::create([
+                'row_id' => $row3->id,
+                'user_id' => $admin->id,
+                'previous_status' => 'UNVERIFIED',
+                'new_status' => 'CONFLICT',
+                'action_taken' => 'FLAGGED_FOR_BOARD',
+                'notes' => 'Duplikasi nomor register fisik 002/P4I/I/2024 dilaporkan ke Dewan Pengurus untuk penetapan surat resmi.',
             ]);
 
             LegacyRegisterRow::create([
@@ -563,11 +598,14 @@ class DatabaseSeeder extends Seeder
                 'letter_type_code' => 'SURAT_KEPUTUSAN',
                 'recipient' => 'Internal Yayasan P4I',
                 'subject' => 'SK Pengangkatan Peneliti Madya Bidang Tata Kelola',
+                'source_location' => 'Buku Register Fisik No. 04/2024 Hal. 18',
+                'provenance_year' => 2024,
+                'provenance_series' => 'SURAT_KEPUTUSAN',
                 'is_valid' => true,
                 'verification_status' => 'UNVERIFIED',
             ]);
 
-            LegacyRegisterRow::create([
+            $row5 = LegacyRegisterRow::create([
                 'batch_id' => $batch->id,
                 'row_index' => 5,
                 'raw_number' => '',
@@ -576,12 +614,55 @@ class DatabaseSeeder extends Seeder
                 'letter_type_code' => 'SURAT_KELUAR',
                 'recipient' => 'Bappeda Kota Bandung',
                 'subject' => 'Penyampaian Policy Brief Pembangunan Berkelanjutan',
+                'source_location' => 'Buku Register Fisik No. 04/2024 Hal. 21',
+                'provenance_year' => 2024,
+                'provenance_series' => 'SURAT_KELUAR',
                 'is_valid' => false,
                 'conflict_type' => 'EMPTY_NUMBER',
                 'conflict_details' => 'Nomor surat pada baris fisik ini kosong atau tidak terisi pada register.',
-                'verification_status' => 'UNVERIFIED',
+                'verification_status' => 'CONFLICT',
+                'reconciliation_action' => 'FLAGGED_FOR_BOARD',
+                'reconciliation_notes' => 'Baris fisik kosong tanpa nomor; diajukan ketetapan VOID atau penetapan nomor susulan oleh Dewan Pembina.',
+            ]);
+
+            ReconciliationAuditLog::create([
+                'row_id' => $row5->id,
+                'user_id' => $admin->id,
+                'previous_status' => 'UNVERIFIED',
+                'new_status' => 'CONFLICT',
+                'action_taken' => 'FLAGGED_FOR_BOARD',
+                'notes' => 'Baris fisik kosong tanpa nomor; diajukan ketetapan VOID atau penetapan nomor susulan oleh Dewan Pembina.',
             ]);
         }
+
+        // 9.3 Agenda Policies DRAFT (BR-10)
+        AgendaPolicy::firstOrCreate(
+            ['direction' => 'OUTGOING'],
+            [
+                'organization_id' => $org->id,
+                'code_prefix' => 'AG-OUT',
+                'format_pattern' => '{PREFIX}/{YEAR}/{SEQ:4}',
+                'reset_period' => 'YEAR',
+                'status' => 'DRAFT',
+                'is_active' => false,
+                'approved_decree_ref' => null,
+                'description' => 'Format Buku Agenda Surat Keluar (Menunggu Pengesahan Dewan Pengurus Yayasan)',
+            ]
+        );
+
+        AgendaPolicy::firstOrCreate(
+            ['direction' => 'INCOMING'],
+            [
+                'organization_id' => $org->id,
+                'code_prefix' => 'AG-IN',
+                'format_pattern' => '{PREFIX}/{YEAR}/{SEQ:4}',
+                'reset_period' => 'YEAR',
+                'status' => 'DRAFT',
+                'is_active' => false,
+                'approved_decree_ref' => null,
+                'description' => 'Format Buku Agenda Surat Masuk (Menunggu Pengesahan Dewan Pengurus Yayasan)',
+            ]
+        );
 
         // 9.3 Buku Agenda Surat Masuk dengan Nomor Terpisah (NR-12)
         IncomingLetter::firstOrCreate(
