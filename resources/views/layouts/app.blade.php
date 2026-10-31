@@ -18,7 +18,7 @@
 
     <!-- Safety Guard Watermark Banner -->
     <div class="watermark-banner py-2 px-4 text-center text-xs font-bold tracking-wide">
-        ⚠️ DRAF — BELUM RESMI / TAHAP FONDASI SPRINT M0 (TARGET HOSTINGER BUSINESS WEB HOSTING / MARIADB)
+        ⚠️ DRAF — BELUM RESMI / SPRINT M1: MANAJEMEN DRAF SURAT & REVISI IMMUTABEL (TARGET HOSTINGER / MARIADB)
     </div>
 
     <!-- Header Navbar -->
@@ -67,6 +67,10 @@
                     <span>✉️</span>
                     <span>Surat Dinas</span>
                 </a>
+                <a href="{{ route('templates.index') }}" class="flex items-center gap-2 px-3 py-2 rounded-lg {{ request()->routeIs('templates.*') ? 'bg-indigo-50 text-indigo-700 font-bold' : 'text-slate-600 hover:bg-slate-50' }}">
+                    <span>📑</span>
+                    <span>Katalog Templat</span>
+                </a>
                 @if(Auth::user()->hasRole('REVIEWER') || Auth::user()->hasRole('PENGURUS_YAYASAN') || Auth::user()->isSystemAdmin())
                 <a href="{{ route('approvals.index') }}" class="flex items-center gap-2 px-3 py-2 rounded-lg {{ request()->routeIs('approvals.*') ? 'bg-indigo-50 text-indigo-700 font-bold' : 'text-slate-600 hover:bg-slate-50' }}">
                     <span>📑</span>
@@ -87,9 +91,9 @@
 
         <!-- Content Area -->
         <main class="flex-1">
-            @if(session('status'))
+            @if(session('status') || session('success'))
                 <div class="mb-4 p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg text-xs font-medium">
-                    {{ session('status') }}
+                    {{ session('status') ?? session('success') }}
                 </div>
             @endif
 
