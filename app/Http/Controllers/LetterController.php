@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Letter;
 use App\Models\LetterTemplate;
 use App\Models\LetterType;
+use App\Services\ApprovalWorkflowService;
 use App\Services\LetterDraftService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -14,7 +15,8 @@ use Illuminate\View\View;
 class LetterController extends Controller
 {
     public function __construct(
-        protected LetterDraftService $draftService
+        protected LetterDraftService $draftService,
+        protected ApprovalWorkflowService $approvalService
     ) {}
 
     /**
@@ -195,5 +197,43 @@ class LetterController extends Controller
         $this->draftService->recordPreviewAudit($user, $letter, (int) $version);
 
         return view('letters.preview', compact('letter', 'revision'));
+    }
+
+    /**
+     * Mengajukan draf surat untuk ditelaah oleh reviewer.
+     */
+    public function submit(Request $request, Letter $letter): RedirectResponse
+    {
+        $this->authorize('submit', $letter);
+        $user = Auth::user();
+
+        $validated = $request->validate([
+            'submission_notes' => ['nullable', 'string', 'max:500'],
+            'idempotency_key' => ['nullable', 'string', 'max:64'],
+        ]);
+
+        $this->approvalService->submit($user, $letter, $validated);
+
+        return redirect()->route('letters.show', $letter)
+            ->with('success', 'Draf surat berhasil diajukan untuk pemeriksaan reviewer.');
+    }
+
+    /**
+     * Menampilkan riwayat status, linimasa revisi, dan keputusan reviewer secara komprehensif.
+     */
+    public function history(Letter $letter): View
+    {
+        $this->authorize('view', $letter);
+
+        $letter->load([
+            'revisions.creator',
+            'statusHistory.actor',
+            'approvalRequests.submitter',
+            'approvalRequests.claimedBy',
+            'approvalRequests.steps.reviewer',
+            'approvalRequests.steps.mandate',
+        ]);
+
+        return view('letters.history', compact('letter'));
     }
 }

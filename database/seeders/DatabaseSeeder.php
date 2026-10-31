@@ -2,12 +2,18 @@
 
 namespace Database\Seeders;
 
+use App\Models\ApprovalRequest;
+use App\Models\ApprovalStep;
+use App\Models\Letter;
+use App\Models\LetterRevision;
+use App\Models\LetterStatusHistory;
 use App\Models\LetterTemplate;
 use App\Models\LetterType;
 use App\Models\NumberingPolicy;
 use App\Models\Organization;
 use App\Models\OrgUnit;
 use App\Models\Role;
+use App\Models\SignatoryMandate;
 use App\Models\User;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Hash;
@@ -15,7 +21,7 @@ use Illuminate\Support\Facades\Hash;
 class DatabaseSeeder extends Seeder
 {
     /**
-     * Seed initial organizational foundation and templates for P4I Office.
+     * Seed initial organizational foundation, templates, users, mandates, and sample workflow for P4I Office.
      */
     public function run(): void
     {
@@ -57,6 +63,18 @@ class DatabaseSeeder extends Seeder
             ]
         );
         $admin->roles()->syncWithoutDetaching([$roleAdmin->id]);
+
+        $pengurus = User::firstOrCreate(
+            ['email' => 'pengurus@p4i.or.id'],
+            [
+                'organization_id' => $org->id,
+                'unit_id' => $sekretariat->id,
+                'display_name' => 'Drs. H. Mulyadi, M.M. (Ketua Yayasan)',
+                'password' => Hash::make('PengurusP4I_2026!'),
+                'status' => 'ACTIVE',
+            ]
+        );
+        $pengurus->roles()->syncWithoutDetaching([$rolePengurus->id, $roleReviewer->id]);
 
         $staf = User::firstOrCreate(
             ['email' => 'staf@p4i.or.id'],
@@ -127,7 +145,7 @@ class DatabaseSeeder extends Seeder
         );
 
         // 7. Templat Surat
-        LetterTemplate::firstOrCreate(
+        $templateMagang = LetterTemplate::firstOrCreate(
             ['organization_id' => $org->id, 'letter_type_id' => $typeMagang->id, 'version' => 1],
             [
                 'title' => 'Templat Standar Keterangan Magang Riset',
@@ -178,5 +196,249 @@ class DatabaseSeeder extends Seeder
                 'is_active' => false, // NONAKTIF: untuk menguji M1-11
             ]
         );
+
+        // 8. Mandat Pejabat (Kewenangan Reviewer & Penandatangan)
+        // PENTING: Mandat lokal berlabel [SIMULASI] (M2-FR-17)
+        $mandateReviewer = SignatoryMandate::firstOrCreate(
+            ['organization_id' => $org->id, 'decree_number' => '[SIMULASI] SK-P4I/MANDAT/2026/001'],
+            [
+                'user_id' => $reviewer->id,
+                'letter_type_id' => null, // Semua jenis surat
+                'unit_id' => $divisiRiset->id,
+                'can_review' => true,
+                'can_approve' => false,
+                'can_sign' => false,
+                'valid_from' => '2026-01-01',
+                'valid_to' => '2026-12-31',
+                'status' => 'ACTIVE',
+                'is_simulation' => true,
+                'notes' => 'Mandat simulasi penelaahan naskah ilmiah dan draf umum yayasan.',
+            ]
+        );
+
+        $mandatePengurus = SignatoryMandate::firstOrCreate(
+            ['organization_id' => $org->id, 'decree_number' => '[SIMULASI] SK-P4I/MANDAT/2026/002'],
+            [
+                'user_id' => $pengurus->id,
+                'letter_type_id' => null,
+                'unit_id' => null,
+                'can_review' => true,
+                'can_approve' => true,
+                'can_sign' => false, // Tanda tangan dimatikan di Sprint M2
+                'valid_from' => '2026-01-01',
+                'valid_to' => '2026-12-31',
+                'status' => 'ACTIVE',
+                'is_simulation' => true,
+                'notes' => 'Mandat simulasi persetujuan substansi naskah surat dinas oleh Pengurus.',
+            ]
+        );
+
+        // Mandat kadaluarsa (Expired) untuk pengujian
+        SignatoryMandate::firstOrCreate(
+            ['organization_id' => $org->id, 'decree_number' => '[SIMULASI] SK-P4I/MANDAT/2025/EXPIRED'],
+            [
+                'user_id' => $reviewer->id,
+                'letter_type_id' => $typeTugas->id,
+                'unit_id' => null,
+                'can_review' => true,
+                'can_approve' => true,
+                'can_sign' => false,
+                'valid_from' => '2025-01-01',
+                'valid_to' => '2025-12-31',
+                'status' => 'EXPIRED',
+                'is_simulation' => true,
+                'notes' => 'Mandat kadaluarsa tahun lalu.',
+            ]
+        );
+
+        // 9. Draf Surat Contoh (Sample Letters Across Workflow States)
+        // A. Surat 1: DRAFT
+        if (! Letter::where('subject', 'Surat Keterangan Magang Ahmad Fauzi')->exists()) {
+            $letter1 = Letter::create([
+                'organization_id' => $org->id,
+                'unit_id' => $sekretariat->id,
+                'letter_type_id' => $typeMagang->id,
+                'template_id' => $templateMagang->id,
+                'author_id' => $staf->id,
+                'subject' => 'Surat Keterangan Magang Ahmad Fauzi',
+                'recipient_name' => 'Ahmad Fauzi (Universitas Indonesia)',
+                'classification' => 'INTERNAL',
+                'planned_date' => '2026-11-15',
+                'status' => 'DRAFT',
+                'current_revision_no' => 1,
+                'official_number' => null,
+            ]);
+
+            $content1 = [
+                'variables' => [
+                    'nama_mahasiswa' => 'Ahmad Fauzi',
+                    'universitas' => 'Universitas Indonesia',
+                    'periode' => '1 Agustus 2026 – 31 Oktober 2026',
+                    'keterangan' => 'Sangat Memuaskan (A)',
+                ],
+                'rendered_body' => '<p>Yang bertanda tangan di bawah ini menerangkan bahwa Ahmad Fauzi telah menyelesaikan magang.</p>',
+            ];
+
+            LetterRevision::create([
+                'letter_id' => $letter1->id,
+                'version' => 1,
+                'template_id' => $templateMagang->id,
+                'subject' => $letter1->subject,
+                'recipient_name' => $letter1->recipient_name,
+                'classification' => 'INTERNAL',
+                'planned_date' => $letter1->planned_date,
+                'content' => $content1,
+                'content_sha256' => hash('sha256', json_encode($content1)),
+                'change_summary' => 'Draf awal surat keterangan magang',
+                'created_by' => $staf->id,
+            ]);
+
+            LetterStatusHistory::create([
+                'letter_id' => $letter1->id,
+                'from_status' => 'INIT',
+                'to_status' => 'DRAFT',
+                'actor_id' => $staf->id,
+                'reason' => 'Pembuatan draf awal surat.',
+            ]);
+        }
+
+        // B. Surat 2: SUBMITTED (Menunggu telaah di antrean reviewer)
+        if (! Letter::where('subject', 'Surat Keterangan Magang Siti Nurhaliza')->exists()) {
+            $letter2 = Letter::create([
+                'organization_id' => $org->id,
+                'unit_id' => $sekretariat->id,
+                'letter_type_id' => $typeMagang->id,
+                'template_id' => $templateMagang->id,
+                'author_id' => $staf->id,
+                'subject' => 'Surat Keterangan Magang Siti Nurhaliza',
+                'recipient_name' => 'Siti Nurhaliza (Institut Teknologi Bandung)',
+                'classification' => 'INTERNAL',
+                'planned_date' => '2026-11-20',
+                'status' => 'SUBMITTED',
+                'current_revision_no' => 1,
+                'official_number' => null,
+            ]);
+
+            $content2 = [
+                'variables' => [
+                    'nama_mahasiswa' => 'Siti Nurhaliza',
+                    'universitas' => 'Institut Teknologi Bandung',
+                    'periode' => '1 September 2026 – 30 November 2026',
+                    'keterangan' => 'Sangat Memuaskan (A)',
+                ],
+                'rendered_body' => '<p>Menerangkan bahwa Siti Nurhaliza telah menyelesaikan magang riset dengan predikat Sangat Memuaskan.</p>',
+            ];
+
+            $rev2 = LetterRevision::create([
+                'letter_id' => $letter2->id,
+                'version' => 1,
+                'template_id' => $templateMagang->id,
+                'subject' => $letter2->subject,
+                'recipient_name' => $letter2->recipient_name,
+                'classification' => 'INTERNAL',
+                'planned_date' => $letter2->planned_date,
+                'content' => $content2,
+                'content_sha256' => hash('sha256', json_encode($content2)),
+                'change_summary' => 'Inisialisasi draf keterangan magang',
+                'created_by' => $staf->id,
+            ]);
+
+            LetterStatusHistory::create([
+                'letter_id' => $letter2->id,
+                'from_status' => 'DRAFT',
+                'to_status' => 'SUBMITTED',
+                'actor_id' => $staf->id,
+                'reason' => 'Diajukan untuk pemeriksaan reviewer.',
+            ]);
+
+            ApprovalRequest::create([
+                'organization_id' => $org->id,
+                'letter_id' => $letter2->id,
+                'revision_id' => $rev2->id,
+                'revision_version' => 1,
+                'content_sha256' => $rev2->content_sha256,
+                'submitted_by' => $staf->id,
+                'submitted_at' => now()->subHours(2),
+                'status' => 'PENDING',
+                'submission_notes' => 'Mohon ditelaah kelayakan surat keterangan.',
+                'workflow_version' => 1,
+            ]);
+        }
+
+        // C. Surat 3: APPROVED (Telah disetujui, official_number tetap NULL)
+        if (! Letter::where('subject', 'Surat Keterangan Magang Budi Santoso')->exists()) {
+            $letter3 = Letter::create([
+                'organization_id' => $org->id,
+                'unit_id' => $sekretariat->id,
+                'letter_type_id' => $typeMagang->id,
+                'template_id' => $templateMagang->id,
+                'author_id' => $staf->id,
+                'subject' => 'Surat Keterangan Magang Budi Santoso',
+                'recipient_name' => 'Budi Santoso (Universitas Gadjah Mada)',
+                'classification' => 'INTERNAL',
+                'planned_date' => '2026-11-10',
+                'status' => 'APPROVED',
+                'current_revision_no' => 1,
+                'official_number' => null, // SAFETY: NULL
+            ]);
+
+            $content3 = [
+                'variables' => [
+                    'nama_mahasiswa' => 'Budi Santoso',
+                    'universitas' => 'Universitas Gadjah Mada',
+                    'periode' => '1 Juli 2026 – 30 September 2026',
+                    'keterangan' => 'Pujian (Cum Laude)',
+                ],
+                'rendered_body' => '<p>Menerangkan bahwa Budi Santoso telah menyelesaikan riset kebijakan publik.</p>',
+            ];
+
+            $rev3 = LetterRevision::create([
+                'letter_id' => $letter3->id,
+                'version' => 1,
+                'template_id' => $templateMagang->id,
+                'subject' => $letter3->subject,
+                'recipient_name' => $letter3->recipient_name,
+                'classification' => 'INTERNAL',
+                'planned_date' => $letter3->planned_date,
+                'content' => $content3,
+                'content_sha256' => hash('sha256', json_encode($content3)),
+                'change_summary' => 'Naskah final keterangan magang Budi Santoso',
+                'created_by' => $staf->id,
+            ]);
+
+            $req3 = ApprovalRequest::create([
+                'organization_id' => $org->id,
+                'letter_id' => $letter3->id,
+                'revision_id' => $rev3->id,
+                'revision_version' => 1,
+                'content_sha256' => $rev3->content_sha256,
+                'submitted_by' => $staf->id,
+                'submitted_at' => now()->subDays(1),
+                'status' => 'APPROVED',
+                'workflow_version' => 1,
+            ]);
+
+            ApprovalStep::create([
+                'approval_request_id' => $req3->id,
+                'letter_id' => $letter3->id,
+                'revision_id' => $rev3->id,
+                'step_no' => 1,
+                'workflow_version' => 1,
+                'reviewer_id' => $pengurus->id,
+                'mandate_id' => $mandatePengurus->id,
+                'decision' => 'APPROVED',
+                'decision_content_sha256' => $rev3->content_sha256,
+                'comments' => 'Substansi surat disetujui sesuai laporan magang.',
+                'decided_at' => now()->subHours(12),
+            ]);
+
+            LetterStatusHistory::create([
+                'letter_id' => $letter3->id,
+                'from_status' => 'IN_REVIEW',
+                'to_status' => 'APPROVED',
+                'actor_id' => $pengurus->id,
+                'reason' => 'Substansi surat disetujui sesuai laporan magang.',
+            ]);
+        }
     }
 }

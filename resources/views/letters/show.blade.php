@@ -2,6 +2,85 @@
 
 @section('content')
 <div class="max-w-5xl mx-auto space-y-6">
+    <!-- Status Notifications & Workflow Banners -->
+    @if($letter->status === 'CHANGES_REQUESTED')
+        @php
+            $latestStep = $letter->approvalSteps()->where('decision', 'CHANGES_REQUESTED')->latest('decided_at')->first();
+        @endphp
+        <div class="p-4 bg-amber-50 rounded-xl border border-amber-300 text-amber-900 shadow-sm flex items-start gap-3">
+            <span class="text-xl">⚠️</span>
+            <div class="flex-1 text-xs">
+                <div class="font-bold text-sm text-amber-950 mb-1">Permintaan Perbaikan Draf dari Reviewer</div>
+                <p class="leading-relaxed mb-2 font-medium">
+                    Catatan Reviewer: "{{ $latestStep->comments ?? 'Mohon periksa dan sesuaikan kembali poin-poin dalam draf surat ini.' }}"
+                </p>
+                <div class="flex items-center gap-2">
+                    @can('update', $letter)
+                        <a href="{{ route('letters.edit', $letter) }}" class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-700 hover:bg-amber-800 text-white font-semibold rounded-md transition-colors">
+                            <span>✏️</span>
+                            <span>Buat Revisi Perbaikan Baru</span>
+                        </a>
+                    @endcan
+                    <span class="text-[11px] text-amber-700">Draf akan kembali ke status DRAFT setelah revisi baru disimpan.</span>
+                </div>
+            </div>
+        </div>
+    @elseif($letter->status === 'SUBMITTED')
+        <div class="p-4 bg-blue-50 rounded-xl border border-blue-200 text-blue-900 shadow-sm flex items-center justify-between gap-3 text-xs">
+            <div class="flex items-center gap-2.5">
+                <span class="text-lg">⏳</span>
+                <div>
+                    <span class="font-bold">Draf Telah Diajukan:</span> Sedang menunggu giliran pemeriksaan oleh reviewer berwenang. Penyuntingan dikunci sementara.
+                </div>
+            </div>
+            <a href="{{ route('letters.history', $letter) }}" class="text-blue-700 hover:text-blue-900 font-semibold underline">
+                Lihat Linimasa
+            </a>
+        </div>
+    @elseif($letter->status === 'IN_REVIEW')
+        <div class="p-4 bg-indigo-50 rounded-xl border border-indigo-200 text-indigo-900 shadow-sm flex items-center justify-between gap-3 text-xs">
+            <div class="flex items-center gap-2.5">
+                <span class="text-lg">🔍</span>
+                <div>
+                    <span class="font-bold">Sedang Ditelaah:</span> Draf surat ini sedang aktif diperiksa oleh pejabat reviewer.
+                </div>
+            </div>
+            <a href="{{ route('letters.history', $letter) }}" class="text-indigo-700 hover:text-indigo-900 font-semibold underline">
+                Lihat Catatan Pemeriksaan
+            </a>
+        </div>
+    @elseif($letter->status === 'APPROVED')
+        @php
+            $approvedStep = $letter->approvalSteps()->where('decision', 'APPROVED')->latest('decided_at')->first();
+        @endphp
+        <div class="p-4 bg-emerald-50 rounded-xl border border-emerald-300 text-emerald-950 shadow-sm flex items-start gap-3 text-xs">
+            <span class="text-xl">✅</span>
+            <div class="flex-1">
+                <div class="font-bold text-sm text-emerald-900 mb-0.5">Draf Telah Disetujui (APPROVED)</div>
+                <p class="leading-relaxed text-emerald-800">
+                    Disetujui oleh: <strong>{{ $approvedStep->reviewer->display_name ?? 'Pejabat Pemeriksa' }}</strong> 
+                    (Dasar Mandat: {{ $approvedStep->mandate->decree_number ?? '-' }}).
+                    <span class="block mt-1 text-[11px] font-semibold text-emerald-900 bg-emerald-100/75 px-2 py-1 rounded inline-block">
+                        PEMBERITAHUAN KEBIJAKAN: Status APPROVED merupakan persetujuan substansi internal. Nomor surat resmi belum diterbitkan (tetap NULL) sesuai mandat Sprint M2.
+                    </span>
+                </p>
+            </div>
+        </div>
+    @elseif($letter->status === 'REJECTED')
+        @php
+            $rejectedStep = $letter->approvalSteps()->where('decision', 'REJECTED')->latest('decided_at')->first();
+        @endphp
+        <div class="p-4 bg-rose-50 rounded-xl border border-rose-300 text-rose-950 shadow-sm flex items-start gap-3 text-xs">
+            <span class="text-xl">❌</span>
+            <div>
+                <div class="font-bold text-sm text-rose-900 mb-0.5">Draf Surat Ditolak (REJECTED)</div>
+                <p class="leading-relaxed text-rose-800">
+                    Alasan Penolakan: "{{ $rejectedStep->comments ?? 'Draf surat tidak memenuhi ketentuan atau format yang ditetapkan.' }}"
+                </p>
+            </div>
+        </div>
+    @endif
+
     <!-- Top Action Bar -->
     <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div class="flex items-center gap-3">
@@ -9,12 +88,17 @@
                 ←
             </a>
             <div>
-                <div class="flex items-center gap-2">
+                <div class="flex items-center gap-2 flex-wrap">
                     <h1 class="text-xl font-bold text-slate-900 tracking-tight">{{ $letter->subject }}</h1>
                     <span class="px-2 py-0.5 rounded text-[11px] font-bold bg-indigo-100 text-indigo-800 border border-indigo-200">
                         v{{ $letter->current_revision_no }}
                     </span>
-                    <span class="px-2 py-0.5 rounded text-[11px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
+                    <span class="px-2 py-0.5 rounded text-[11px] font-bold 
+                        @if($letter->status === 'APPROVED') bg-emerald-100 text-emerald-800 border-emerald-300
+                        @elseif($letter->status === 'REJECTED') bg-rose-100 text-rose-800 border-rose-300
+                        @elseif($letter->status === 'CHANGES_REQUESTED') bg-amber-100 text-amber-800 border-amber-300
+                        @elseif($letter->status === 'SUBMITTED' || $letter->status === 'IN_REVIEW') bg-blue-100 text-blue-800 border-blue-300
+                        @else bg-slate-100 text-slate-700 border-slate-300 @endif border">
                         {{ $letter->status }}
                     </span>
                     @if($letter->classification === 'RAHASIA')
@@ -29,16 +113,34 @@
             </div>
         </div>
 
-        <div class="flex items-center gap-2">
+        <div class="flex items-center gap-2 flex-wrap">
+            @if($letter->status === 'DRAFT')
+                @can('submit', $letter)
+                    <form action="{{ route('letters.submit', $letter) }}" method="POST" class="inline" onsubmit="return confirm('Ajukan draf surat revisi v{{ $letter->current_revision_no }} untuk pemeriksaan reviewer?');">
+                        @csrf
+                        <button type="submit" class="inline-flex items-center gap-1.5 px-3.5 py-2 bg-blue-700 hover:bg-blue-800 text-white text-xs font-semibold rounded-lg shadow-sm transition-colors">
+                            <span>🚀</span>
+                            <span>Ajukan ke Reviewer</span>
+                        </button>
+                    </form>
+                @endcan
+            @endif
+
             @can('update', $letter)
                 <a href="{{ route('letters.edit', $letter) }}" class="inline-flex items-center gap-1.5 px-3.5 py-2 bg-indigo-700 hover:bg-indigo-800 text-white text-xs font-semibold rounded-lg shadow-sm transition-colors">
                     <span>✏️</span>
                     <span>Revisi Draf Baru</span>
                 </a>
             @endcan
+
             <a href="{{ route('letters.preview', $letter) }}" target="_blank" class="inline-flex items-center gap-1.5 px-3.5 py-2 bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold rounded-lg shadow-sm transition-colors">
                 <span>🖨️</span>
                 <span>Pratinjau Watermark</span>
+            </a>
+
+            <a href="{{ route('letters.history', $letter) }}" class="inline-flex items-center gap-1.5 px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold rounded-lg border border-slate-300 transition-colors">
+                <span>📜</span>
+                <span>Riwayat & Linimasa</span>
             </a>
         </div>
     </div>

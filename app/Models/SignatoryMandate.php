@@ -22,7 +22,9 @@ class SignatoryMandate extends Model
         'valid_from',
         'valid_to',
         'status',
+        'revoked_at',
         'decree_number',
+        'is_simulation',
         'notes',
     ];
 
@@ -30,8 +32,10 @@ class SignatoryMandate extends Model
         'can_review' => 'boolean',
         'can_approve' => 'boolean',
         'can_sign' => 'boolean',
+        'is_simulation' => 'boolean',
         'valid_from' => 'date:Y-m-d',
         'valid_to' => 'date:Y-m-d',
+        'revoked_at' => 'datetime',
     ];
 
     public function organization(): BelongsTo
@@ -54,12 +58,23 @@ class SignatoryMandate extends Model
         return $this->belongsTo(OrgUnit::class, 'unit_id');
     }
 
+    /**
+     * Memeriksa apakah mandat aktif dan berlaku pada tanggal saat ini.
+     */
     public function isValidNow(): bool
     {
-        $today = now()->format('Y-m-d');
+        if ($this->status !== 'ACTIVE' || $this->revoked_at !== null) {
+            return false;
+        }
 
-        return $this->status === 'ACTIVE'
-            && $this->valid_from->format('Y-m-d') <= $today
-            && $this->valid_to->format('Y-m-d') >= $today;
+        $today = now()->format('Y-m-d');
+        $validFrom = $this->valid_from ? $this->valid_from->format('Y-m-d') : null;
+        $validTo = $this->valid_to ? $this->valid_to->format('Y-m-d') : null;
+
+        if (! $validFrom || ! $validTo) {
+            return false;
+        }
+
+        return $validFrom <= $today && $validTo >= $today;
     }
 }

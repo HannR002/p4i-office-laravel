@@ -18,7 +18,7 @@
 
     <!-- Safety Guard Watermark Banner -->
     <div class="watermark-banner py-2 px-4 text-center text-xs font-bold tracking-wide">
-        ⚠️ DRAF — BELUM RESMI / SPRINT M1: MANAJEMEN DRAF SURAT & REVISI IMMUTABEL (TARGET HOSTINGER / MARIADB)
+        ⚠️ DRAF — BELUM RESMI / SPRINT M2: ALUR PERSETUJUAN SURAT & KEWENANGAN PEMERIKSA (TARGET HOSTINGER / MARIADB)
     </div>
 
     <!-- Header Navbar -->
@@ -30,7 +30,7 @@
                 </div>
                 <div>
                     <a href="{{ route('dashboard') }}" class="font-bold text-slate-900 hover:text-indigo-600 transition-colors">
-                        P4I Office <span class="text-xs bg-indigo-100 text-indigo-800 font-semibold px-2 py-0.5 rounded">v1.0-M0</span>
+                        P4I Office <span class="text-xs bg-indigo-100 text-indigo-800 font-semibold px-2 py-0.5 rounded">v1.0-M2</span>
                     </a>
                     <div class="text-[11px] text-slate-500 font-medium">Yayasan Pusat Pendidikan dan Penelitian Pembangunan Indonesia</div>
                 </div>

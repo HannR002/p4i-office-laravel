@@ -21,14 +21,18 @@ class ApprovalRequest extends Model
         'submitted_by',
         'submitted_at',
         'status',
+        'claimed_by',
+        'claimed_at',
         'submission_notes',
         'workflow_version',
+        'idempotency_key',
     ];
 
     protected $casts = [
         'revision_version' => 'integer',
         'workflow_version' => 'integer',
         'submitted_at' => 'datetime',
+        'claimed_at' => 'datetime',
     ];
 
     public function organization(): BelongsTo
@@ -51,8 +55,13 @@ class ApprovalRequest extends Model
         return $this->belongsTo(User::class, 'submitted_by');
     }
 
+    public function claimedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'claimed_by');
+    }
+
     public function steps(): HasMany
     {
-        return $this->hasMany(ApprovalStep::class)->orderBy('step_no', 'asc');
+        return $this->hasMany(ApprovalStep::class, 'approval_request_id')->orderBy('step_no');
     }
 }

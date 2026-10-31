@@ -78,6 +78,11 @@ class Letter extends Model
         return $this->hasOne(ApprovalRequest::class)->latestOfMany();
     }
 
+    public function approvalSteps(): HasMany
+    {
+        return $this->hasMany(ApprovalStep::class)->orderBy('decided_at', 'asc');
+    }
+
     public function statusHistory(): HasMany
     {
         return $this->hasMany(LetterStatusHistory::class)->orderBy('created_at', 'asc');

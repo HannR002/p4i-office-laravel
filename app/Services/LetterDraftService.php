@@ -157,8 +157,8 @@ class LetterDraftService
                 ->lockForUpdate()
                 ->firstOrFail();
 
-            if ($lockedLetter->status !== 'DRAFT') {
-                throw new InvalidArgumentException('Hanya surat dengan status DRAFT yang dapat direvisi.');
+            if (! in_array($lockedLetter->status, ['DRAFT', 'CHANGES_REQUESTED'], true)) {
+                throw new InvalidArgumentException("Hanya surat dengan status DRAFT atau CHANGES_REQUESTED yang dapat direvisi (Status saat ini: {$lockedLetter->status}).");
             }
 
             // Deteksi Stale Revision / Lost Update
@@ -218,6 +218,7 @@ class LetterDraftService
             ]);
 
             // Perbarui header surat ke versi revisi terkini
+            $oldStatus = $lockedLetter->status;
             $lockedLetter->update([
                 'subject' => $newRevision->subject,
                 'recipient_name' => $newRevision->recipient_name,
@@ -225,8 +226,20 @@ class LetterDraftService
                 'planned_date' => $newRevision->planned_date,
                 'template_id' => $newRevision->template_id,
                 'current_revision_no' => $newVersion,
+                'status' => 'DRAFT',
                 // official_number tetap NULL
             ]);
+
+            if ($oldStatus === 'CHANGES_REQUESTED') {
+                LetterStatusHistory::create([
+                    'letter_id' => $lockedLetter->id,
+                    'revision_id' => $newRevision->id,
+                    'from_status' => 'CHANGES_REQUESTED',
+                    'to_status' => 'DRAFT',
+                    'actor_id' => $editor->id,
+                    'reason' => 'Draf disesuaikan ke revisi baru setelah permintaan perubahan.',
+                ]);
+            }
 
             AuditEvent::create([
                 'organization_id' => $editor->organization_id,

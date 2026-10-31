@@ -18,16 +18,19 @@ class ApprovalStep extends Model
         'letter_id',
         'revision_id',
         'step_no',
+        'workflow_version',
         'reviewer_id',
         'mandate_id',
         'decision',
         'decision_content_sha256',
         'comments',
+        'idempotency_key',
         'decided_at',
     ];
 
     protected $casts = [
         'step_no' => 'integer',
+        'workflow_version' => 'integer',
         'decided_at' => 'datetime',
     ];
 
