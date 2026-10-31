@@ -23,9 +23,10 @@ class LetterDraftService
     /**
      * Membuat draf surat baru beserta revisi v1 secara atomik dalam satu transaksi.
      *
-     * @param User $author Pengguna pembuat surat
-     * @param array<string, mixed> $data Data surat dan formulir
+     * @param  User  $author  Pengguna pembuat surat
+     * @param  array<string, mixed>  $data  Data surat dan formulir
      * @return Letter Surat yang berhasil dibuat
+     *
      * @throws ValidationException
      */
     public function createDraft(User $author, array $data): Letter
@@ -35,7 +36,7 @@ class LetterDraftService
             ->where('organization_id', $author->organization_id)
             ->first();
 
-        if (!$letterType || !$letterType->is_active) {
+        if (! $letterType || ! $letterType->is_active) {
             throw ValidationException::withMessages([
                 'letter_type_id' => 'Jenis surat tidak valid atau sedang dinonaktifkan.',
             ]);
@@ -47,7 +48,7 @@ class LetterDraftService
             ->where('letter_type_id', $letterType->id)
             ->first();
 
-        if (!$template || !$template->is_active) {
+        if (! $template || ! $template->is_active) {
             throw ValidationException::withMessages([
                 'template_id' => 'Templat surat tidak ditemukan atau sedang tidak aktif.',
             ]);
@@ -55,7 +56,7 @@ class LetterDraftService
 
         // 3. Validasi klasifikasi keamanan
         $classification = strtoupper($data['classification'] ?? 'INTERNAL');
-        if (!in_array($classification, ['INTERNAL', 'TERBATAS', 'RAHASIA'], true)) {
+        if (! in_array($classification, ['INTERNAL', 'TERBATAS', 'RAHASIA'], true)) {
             throw ValidationException::withMessages([
                 'classification' => 'Klasifikasi surat harus salah satu dari: INTERNAL, TERBATAS, atau RAHASIA.',
             ]);
@@ -138,11 +139,12 @@ class LetterDraftService
      * Memperbarui draf dengan menghasilkan revisi baru (v2, v3, dst.) secara append-only.
      * Menggunakan Pessimistic Row Locking dan Optimistic Revision Token untuk mencegah lost update.
      *
-     * @param User $editor Pengguna yang melakukan revisi
-     * @param Letter $letter Surat yang hendak direvisi
-     * @param array<string, mixed> $data Data revisi baru
-     * @param int $expectedRevisionNo Nomor revisi yang dijadikan acuan dasar pengguna
+     * @param  User  $editor  Pengguna yang melakukan revisi
+     * @param  Letter  $letter  Surat yang hendak direvisi
+     * @param  array<string, mixed>  $data  Data revisi baru
+     * @param  int  $expectedRevisionNo  Nomor revisi yang dijadikan acuan dasar pengguna
      * @return LetterRevision Rekaman revisi baru yang berhasil ditambahkan
+     *
      * @throws StaleRevisionException
      * @throws ValidationException
      */
@@ -172,14 +174,14 @@ class LetterDraftService
                 ->where('organization_id', $editor->organization_id)
                 ->first();
 
-            if (!$template || !$template->is_active) {
+            if (! $template || ! $template->is_active) {
                 throw ValidationException::withMessages([
                     'template_id' => 'Templat surat tidak ditemukan atau sedang tidak aktif.',
                 ]);
             }
 
             $classification = strtoupper($data['classification'] ?? $lockedLetter->classification);
-            if (!in_array($classification, ['INTERNAL', 'TERBATAS', 'RAHASIA'], true)) {
+            if (! in_array($classification, ['INTERNAL', 'TERBATAS', 'RAHASIA'], true)) {
                 throw ValidationException::withMessages([
                     'classification' => 'Klasifikasi surat tidak valid.',
                 ]);

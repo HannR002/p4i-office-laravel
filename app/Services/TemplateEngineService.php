@@ -9,15 +9,15 @@ class TemplateEngineService
      * Menggunakan htmlspecialchars untuk mencegah Cross-Site Scripting (XSS) dan
      * Server-Side Template Injection (SSTI). Dilarang mengeksekusi PHP/Blade mentah.
      *
-     * @param string $template Konten template dengan placeholder {{variabel}}
-     * @param array<string, mixed> $variables Data isian formulir
+     * @param  string  $template  Konten template dengan placeholder {{variabel}}
+     * @param  array<string, mixed>  $variables  Data isian formulir
      * @return string Konten HTML yang telah dirender secara aman
      */
     public function render(string $template, array $variables): string
     {
         return preg_replace_callback('/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/', function ($matches) use ($variables) {
             $key = $matches[1];
-            if (!array_key_exists($key, $variables)) {
+            if (! array_key_exists($key, $variables)) {
                 return '';
             }
 
@@ -33,12 +33,12 @@ class TemplateEngineService
     /**
      * Ekstrak variabel yang dibutuhkan oleh sebuah template.
      *
-     * @param string $template
      * @return array<int, string>
      */
     public function extractVariables(string $template): array
     {
         preg_match_all('/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/', $template, $matches);
+
         return array_values(array_unique($matches[1] ?? []));
     }
 }

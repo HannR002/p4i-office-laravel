@@ -1,12 +1,152 @@
 @extends('layouts.app')
 
 @section('content')
-<div class="space-y-4">
-    <div class="bg-white p-6 rounded-xl border border-slate-200">
-        <h1 class="text-base font-bold text-slate-900">{{ $letter->subject }}</h1>
-        <div class="text-xs text-slate-500 mt-1">
-            Status: <span class="font-bold text-indigo-700">{{ $letter->status }}</span> &bull; 
-            Nomor Resmi: <span class="text-slate-400 italic">BELUM DITERBITKAN (OFF)</span>
+<div class="max-w-5xl mx-auto space-y-6">
+    <!-- Top Action Bar -->
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div class="flex items-center gap-3">
+            <a href="{{ route('letters.index') }}" class="p-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-100 transition-colors" title="Kembali ke Daftar">
+                ←
+            </a>
+            <div>
+                <div class="flex items-center gap-2">
+                    <h1 class="text-xl font-bold text-slate-900 tracking-tight">{{ $letter->subject }}</h1>
+                    <span class="px-2 py-0.5 rounded text-[11px] font-bold bg-indigo-100 text-indigo-800 border border-indigo-200">
+                        v{{ $letter->current_revision_no }}
+                    </span>
+                    <span class="px-2 py-0.5 rounded text-[11px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
+                        {{ $letter->status }}
+                    </span>
+                    @if($letter->classification === 'RAHASIA')
+                        <span class="px-2 py-0.5 rounded text-[11px] font-bold bg-rose-100 text-rose-800 border border-rose-200">
+                            🔒 RAHASIA
+                        </span>
+                    @endif
+                </div>
+                <p class="text-xs text-slate-500 mt-0.5">
+                    {{ $letter->letterType->label ?? 'Surat Dinas' }} &bull; Dibuat oleh {{ $letter->author->display_name ?? '-' }} ({{ $letter->unit->name ?? 'Sekretariat' }})
+                </p>
+            </div>
+        </div>
+
+        <div class="flex items-center gap-2">
+            @can('update', $letter)
+                <a href="{{ route('letters.edit', $letter) }}" class="inline-flex items-center gap-1.5 px-3.5 py-2 bg-indigo-700 hover:bg-indigo-800 text-white text-xs font-semibold rounded-lg shadow-sm transition-colors">
+                    <span>✏️</span>
+                    <span>Revisi Draf Baru</span>
+                </a>
+            @endcan
+            <a href="{{ route('letters.preview', $letter) }}" target="_blank" class="inline-flex items-center gap-1.5 px-3.5 py-2 bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold rounded-lg shadow-sm transition-colors">
+                <span>🖨️</span>
+                <span>Pratinjau Watermark</span>
+            </a>
+        </div>
+    </div>
+
+    <!-- Metadata Card -->
+    <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
+        <div>
+            <div class="text-slate-400 font-semibold mb-0.5">Nomor Surat Resmi</div>
+            <div class="font-mono font-bold text-amber-700 bg-amber-50 px-2 py-1 rounded inline-block">
+                {{ $letter->official_number ?? 'BELUM DITERBITKAN (DRAF)' }}
+            </div>
+        </div>
+        <div>
+            <div class="text-slate-400 font-semibold mb-0.5">Tujuan / Penerima</div>
+            <div class="font-bold text-slate-900">{{ $letter->recipient_name }}</div>
+        </div>
+        <div>
+            <div class="text-slate-400 font-semibold mb-0.5">Tanggal Rencana</div>
+            <div class="font-bold text-slate-900">{{ \Carbon\Carbon::parse($letter->planned_date)->translatedFormat('d F Y') }}</div>
+        </div>
+        <div>
+            <div class="text-slate-400 font-semibold mb-0.5">Templat Dasar</div>
+            <div class="font-medium text-slate-800">{{ $letter->template->title ?? '-' }} (v{{ $letter->template->version ?? '1' }})</div>
+        </div>
+    </div>
+
+    <!-- Main Content & Revision Timeline Grid -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <!-- Letter Body Content (2 cols) -->
+        <div class="lg:col-span-2 space-y-4">
+            <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                <div class="bg-slate-50 px-5 py-3 border-b border-slate-200 flex items-center justify-between">
+                    <div class="font-bold text-xs text-slate-800 flex items-center gap-2">
+                        <span>📄</span>
+                        <span>Isi Naskah Draf Terkini (Versi {{ $currentRevision->version ?? $letter->current_revision_no }})</span>
+                    </div>
+                    <div class="text-[11px] text-slate-500 font-mono">
+                        SHA256: {{ substr($currentRevision->content_sha256 ?? '', 0, 12) }}...
+                    </div>
+                </div>
+
+                <div class="p-6 prose prose-sm max-w-none text-slate-800 text-xs leading-relaxed space-y-4">
+                    @if(isset($currentRevision->content['rendered_body']))
+                        {!! $currentRevision->content['rendered_body'] !!}
+                    @else
+                        <p class="text-slate-400 italic">Isi surat belum dikonfigurasi.</p>
+                    @endif
+                </div>
+
+                @if(!empty($currentRevision->content['variables']))
+                    <div class="bg-slate-50/75 p-4 border-t border-slate-200">
+                        <div class="text-[11px] font-bold text-slate-600 mb-2">Variabel Isian Formulir:</div>
+                        <dl class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
+                            @foreach($currentRevision->content['variables'] as $k => $v)
+                                <div class="flex items-center gap-1.5">
+                                    <dt class="font-semibold text-slate-500">{{ $k }}:</dt>
+                                    <dd class="text-slate-800 font-medium">{{ is_array($v) ? json_encode($v) : $v }}</dd>
+                                </div>
+                            @endforeach
+                        </dl>
+                    </div>
+                @endif
+            </div>
+        </div>
+
+        <!-- Revision History Timeline (1 col) -->
+        <div class="space-y-4">
+            <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
+                <h3 class="font-bold text-xs text-slate-900 mb-3 flex items-center gap-2">
+                    <span>📜</span>
+                    <span>Riwayat Revisi Immutabel ({{ $letter->revisions->count() }})</span>
+                </h3>
+
+                <div class="space-y-3 relative before:absolute before:inset-0 before:left-3.5 before:w-0.5 before:bg-slate-200">
+                    @foreach($letter->revisions->sortByDesc('version') as $rev)
+                        <div class="relative flex items-start gap-3 pl-1">
+                            <div class="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold z-10 {{ $rev->version === $letter->current_revision_no ? 'bg-indigo-600 text-white ring-4 ring-indigo-50' : 'bg-slate-200 text-slate-700' }}">
+                                v{{ $rev->version }}
+                            </div>
+                            <div class="flex-1 bg-slate-50 p-2.5 rounded-lg border border-slate-200 text-xs">
+                                <div class="flex items-center justify-between gap-1 mb-1">
+                                    <span class="font-bold text-slate-800">Versi {{ $rev->version }}</span>
+                                    <span class="text-[10px] text-slate-400">
+                                        {{ \Carbon\Carbon::parse($rev->created_at)->format('d/m/Y H:i') }}
+                                    </span>
+                                </div>
+                                <p class="text-[11px] text-slate-600 mb-2 leading-tight">
+                                    {{ $rev->change_summary ?? 'Pembaruan naskah' }}
+                                </p>
+                                <div class="text-[10px] text-slate-400 mb-2 font-mono truncate" title="{{ $rev->content_sha256 }}">
+                                    SHA: {{ substr($rev->content_sha256, 0, 16) }}...
+                                </div>
+                                <div class="flex items-center justify-between text-[10px]">
+                                    <span class="text-slate-500 font-medium">Oleh: {{ $rev->creator->display_name ?? 'Staf' }}</span>
+                                    <a href="{{ route('letters.preview', ['letter' => $letter, 'version' => $rev->version]) }}" target="_blank" class="text-indigo-600 hover:text-indigo-800 font-semibold underline">
+                                        Pratinjau v{{ $rev->version }}
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+                    @endforeach
+                </div>
+            </div>
+
+            <!-- Catatan Integritas -->
+            <div class="p-3.5 bg-blue-50 rounded-xl border border-blue-200 text-blue-900 text-[11px] leading-relaxed">
+                <strong>JAMINAN IMMUTABILITAS:</strong> Seluruh baris revisi terlindungi oleh trigger MariaDB InnoDB (`trg_letter_revisions_no_update`). Revisi lama bersifat permanen dan tidak dapat diedit atau dihapus oleh siapapun.
+            </div>
         </div>
     </div>
 </div>

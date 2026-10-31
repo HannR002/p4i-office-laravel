@@ -4,9 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\AuditEvent;
 use App\Models\LetterTemplate;
-use App\Models\LetterType;
 use Illuminate\Http\RedirectResponse;
-use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\View\View;
 
@@ -36,7 +34,7 @@ class TemplateController extends Controller
         $this->authorize('update', $template);
         $user = Auth::user();
 
-        $newStatus = !$template->is_active;
+        $newStatus = ! $template->is_active;
         $template->update(['is_active' => $newStatus]);
 
         AuditEvent::create([
@@ -54,6 +52,7 @@ class TemplateController extends Controller
         ]);
 
         $statusLabel = $newStatus ? 'diaktifkan' : 'dinonaktifkan';
+
         return redirect()->route('templates.index')
             ->with('success', "Templat '{$template->title}' berhasil {$statusLabel}.");
     }

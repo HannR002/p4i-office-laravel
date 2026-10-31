@@ -21,7 +21,7 @@ class LetterPolicy
      */
     public function view(User $user, Letter $letter): bool
     {
-        if (!$user->isActive()) {
+        if (! $user->isActive()) {
             return false;
         }
 
@@ -45,7 +45,7 @@ class LetterPolicy
      */
     public function create(User $user): bool
     {
-        return $user->isActive() && !empty($user->organization_id);
+        return $user->isActive() && ! empty($user->organization_id);
     }
 
     /**
@@ -53,7 +53,7 @@ class LetterPolicy
      */
     public function update(User $user, Letter $letter): bool
     {
-        if (!$user->isActive()) {
+        if (! $user->isActive()) {
             return false;
         }
 
@@ -88,7 +88,7 @@ class LetterPolicy
      */
     public function delete(User $user, Letter $letter): bool
     {
-        if (!$user->isActive() || $user->organization_id !== $letter->organization_id) {
+        if (! $user->isActive() || $user->organization_id !== $letter->organization_id) {
             return false;
         }
 

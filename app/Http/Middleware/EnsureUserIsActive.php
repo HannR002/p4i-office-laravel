@@ -16,8 +16,8 @@ class EnsureUserIsActive
     public function handle(Request $request, Closure $next): Response
     {
         if (Auth::check()) {
-            $user = Auth::user();
-            if ($user->status !== 'ACTIVE') {
+            $user = Auth::user()->fresh();
+            if (! $user || $user->status !== 'ACTIVE') {
                 Auth::logout();
                 $request->session()->invalidate();
                 $request->session()->regenerateToken();

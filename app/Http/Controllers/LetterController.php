@@ -3,7 +3,6 @@
 namespace App\Http\Controllers;
 
 use App\Models\Letter;
-use App\Models\LetterRevision;
 use App\Models\LetterTemplate;
 use App\Models\LetterType;
 use App\Services\LetterDraftService;
@@ -31,7 +30,7 @@ class LetterController extends Controller
 
         // Penegakan Kerahasiaan (Confidentiality Scoping):
         // Jika bukan Admin dan bukan Pengurus Yayasan, sembunyikan dokumen RAHASIA milik orang lain.
-        if (!$user->isSystemAdmin() && !$user->hasRole('PENGURUS_YAYASAN')) {
+        if (! $user->isSystemAdmin() && ! $user->hasRole('PENGURUS_YAYASAN')) {
             $query->where(function ($q) use ($user) {
                 $q->where('classification', '!=', 'RAHASIA')
                     ->orWhere('author_id', $user->id);
@@ -40,7 +39,7 @@ class LetterController extends Controller
 
         // Pencarian teks (perihal, nama penerima)
         if ($request->filled('search')) {
-            $searchTerm = '%' . trim($request->search) . '%';
+            $searchTerm = '%'.trim($request->search).'%';
             $query->where(function ($q) use ($searchTerm) {
                 $q->where('subject', 'like', $searchTerm)
                     ->orWhere('recipient_name', 'like', $searchTerm);
