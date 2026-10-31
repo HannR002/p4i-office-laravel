@@ -1,22 +1,27 @@
 <?php
 
+use App\Http\Controllers\AgendaController;
 use App\Http\Controllers\ApprovalController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\LegacyRegisterController;
 use App\Http\Controllers\LetterController;
 use App\Http\Controllers\MandateController;
+use App\Http\Controllers\NumberingPolicyController;
+use App\Http\Controllers\ReadinessController;
 use App\Http\Controllers\TemplateController;
 use App\Models\User;
 use Illuminate\Support\Facades\Route;
 
 /*
 |--------------------------------------------------------------------------
-| Web Routes: P4I Office v1.0 (Sprint M1)
+| Web Routes: P4I Office v1.0 (Sprint M1, M2, M3A)
 |--------------------------------------------------------------------------
 |
 | Rute otentikasi, dashboard, persuratan draf, riwayat revisi,
-| pratinjau watermark, templat dinamis, antrean telaah, dan mandat pejabat.
-| Seluruh rute dilindungi oleh middleware active.user untuk revokasi akun seketika.
+| pratinjau watermark, templat dinamis, antrean telaah, mandat pejabat,
+| kebijakan penomoran simulasi, staging register historis, buku agenda ganda,
+| dan laporan kesiapan (readiness persuratan).
 |
 */
 
@@ -57,6 +62,28 @@ Route::middleware(['auth', 'active.user'])->group(function () {
 
     // Modul Mandat Pejabat
     Route::get('/mandates', [MandateController::class, 'index'])->name('mandates.index');
+
+    // Modul Fondasi Penomoran & Pratinjau Simulasi (Sprint M3A)
+    Route::get('/numbering/policies', [NumberingPolicyController::class, 'index'])->name('numbering.policies.index');
+    Route::post('/numbering/policies', [NumberingPolicyController::class, 'store'])->name('numbering.policies.store');
+    Route::post('/numbering/preview', [NumberingPolicyController::class, 'preview'])->name('numbering.preview');
+    Route::post('/numbering/simulate', [NumberingPolicyController::class, 'simulate'])->name('numbering.simulate');
+
+    // Modul Staging Register Historis (Sprint M3A)
+    Route::get('/legacy-registers', [LegacyRegisterController::class, 'index'])->name('legacy.index');
+    Route::get('/legacy-registers/create', [LegacyRegisterController::class, 'create'])->name('legacy.create');
+    Route::post('/legacy-registers', [LegacyRegisterController::class, 'store'])->name('legacy.store');
+    Route::get('/legacy-registers/{id}', [LegacyRegisterController::class, 'show'])->name('legacy.show');
+    Route::post('/legacy-registers/{id}/verify', [LegacyRegisterController::class, 'verify'])->name('legacy.verify');
+
+    // Modul Buku Agenda Ganda (Sprint M3A)
+    Route::get('/agenda/outgoing', [AgendaController::class, 'outgoing'])->name('agenda.outgoing');
+    Route::get('/agenda/incoming', [AgendaController::class, 'incoming'])->name('agenda.incoming');
+    Route::get('/agenda/incoming/create', [AgendaController::class, 'createIncoming'])->name('agenda.incoming.create');
+    Route::post('/agenda/incoming', [AgendaController::class, 'storeIncoming'])->name('agenda.incoming.store');
+
+    // Modul Laporan Kesiapan Persuratan Yayasan (Sprint M3A)
+    Route::get('/readiness', [ReadinessController::class, 'index'])->name('readiness.index');
 
     // Logout
     Route::post('/logout', [AuthController::class, 'logout'])->name('logout');

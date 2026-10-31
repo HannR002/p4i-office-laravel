@@ -20,6 +20,9 @@ class NumberingPolicy extends Model
         'reset_period',
         'padding',
         'is_active',
+        'status',
+        'scope_type',
+        'description',
         'legacy_reconciled',
         'approved_policy_ref',
     ];
@@ -38,5 +41,15 @@ class NumberingPolicy extends Model
     public function letterTypes(): HasMany
     {
         return $this->hasMany(LetterType::class);
+    }
+
+    public function counters(): HasMany
+    {
+        return $this->hasMany(NumberingSimulationCounter::class, 'policy_id');
+    }
+
+    public function simulations(): HasMany
+    {
+        return $this->hasMany(NumberingSimulation::class, 'policy_id');
     }
 }

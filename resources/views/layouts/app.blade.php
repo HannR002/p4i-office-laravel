@@ -18,7 +18,7 @@
 
     <!-- Safety Guard Watermark Banner -->
     <div class="watermark-banner py-2 px-4 text-center text-xs font-bold tracking-wide">
-        ⚠️ DRAF — BELUM RESMI / SPRINT M2: ALUR PERSETUJUAN SURAT & KEWENANGAN PEMERIKSA (TARGET HOSTINGER / MARIADB)
+        ⚠️ DRAF — BELUM RESMI / SPRINT M3A: PENOMORAN SIMULASI, REGISTER HISTORIS & AGENDA PERSURATAN (STATUS RESMI: OFF & BLOCKED)
     </div>
 
     <!-- Header Navbar -->
@@ -30,7 +30,7 @@
                 </div>
                 <div>
                     <a href="{{ route('dashboard') }}" class="font-bold text-slate-900 hover:text-indigo-600 transition-colors">
-                        P4I Office <span class="text-xs bg-indigo-100 text-indigo-800 font-semibold px-2 py-0.5 rounded">v1.0-M2</span>
+                        P4I Office <span class="text-xs bg-indigo-100 text-indigo-800 font-semibold px-2 py-0.5 rounded">v1.0-M3A</span>
                     </a>
                     <div class="text-[11px] text-slate-500 font-medium">Yayasan Pusat Pendidikan dan Penelitian Pembangunan Indonesia</div>
                 </div>
@@ -65,7 +65,7 @@
                 </a>
                 <a href="{{ route('letters.index') }}" class="flex items-center gap-2 px-3 py-2 rounded-lg {{ request()->routeIs('letters.*') ? 'bg-indigo-50 text-indigo-700 font-bold' : 'text-slate-600 hover:bg-slate-50' }}">
                     <span>✉️</span>
-                    <span>Surat Dinas</span>
+                    <span>Surat Dinas (Draf)</span>
                 </a>
                 <a href="{{ route('templates.index') }}" class="flex items-center gap-2 px-3 py-2 rounded-lg {{ request()->routeIs('templates.*') ? 'bg-indigo-50 text-indigo-700 font-bold' : 'text-slate-600 hover:bg-slate-50' }}">
                     <span>📑</span>
@@ -73,7 +73,7 @@
                 </a>
                 @if(Auth::user()->hasRole('REVIEWER') || Auth::user()->hasRole('PENGURUS_YAYASAN') || Auth::user()->isSystemAdmin())
                 <a href="{{ route('approvals.index') }}" class="flex items-center gap-2 px-3 py-2 rounded-lg {{ request()->routeIs('approvals.*') ? 'bg-indigo-50 text-indigo-700 font-bold' : 'text-slate-600 hover:bg-slate-50' }}">
-                    <span>📑</span>
+                    <span>✅</span>
                     <span>Antrean Pemeriksaan</span>
                 </a>
                 @endif
@@ -81,10 +81,35 @@
                     <span>📜</span>
                     <span>Mandat Pejabat</span>
                 </a>
+
+                <div class="pt-2 pb-1 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                    Sprint M3A: Penomoran & Agenda
+                </div>
+
+                <a href="{{ route('numbering.policies.index') }}" class="flex items-center gap-2 px-3 py-2 rounded-lg {{ request()->routeIs('numbering.*') ? 'bg-indigo-50 text-indigo-700 font-bold' : 'text-slate-600 hover:bg-slate-50' }}">
+                    <span>🔢</span>
+                    <span>Kebijakan & Simulator Nomor</span>
+                </a>
+                <a href="{{ route('legacy.index') }}" class="flex items-center gap-2 px-3 py-2 rounded-lg {{ request()->routeIs('legacy.*') ? 'bg-indigo-50 text-indigo-700 font-bold' : 'text-slate-600 hover:bg-slate-50' }}">
+                    <span>🗄️</span>
+                    <span>Staging Register Historis</span>
+                </a>
+                <a href="{{ route('agenda.outgoing') }}" class="flex items-center gap-2 px-3 py-2 rounded-lg {{ request()->routeIs('agenda.outgoing') ? 'bg-indigo-50 text-indigo-700 font-bold' : 'text-slate-600 hover:bg-slate-50' }}">
+                    <span>📤</span>
+                    <span>Agenda Surat Keluar</span>
+                </a>
+                <a href="{{ route('agenda.incoming') }}" class="flex items-center gap-2 px-3 py-2 rounded-lg {{ request()->routeIs('agenda.incoming*') ? 'bg-indigo-50 text-indigo-700 font-bold' : 'text-slate-600 hover:bg-slate-50' }}">
+                    <span>📥</span>
+                    <span>Agenda Surat Masuk</span>
+                </a>
+                <a href="{{ route('readiness.index') }}" class="flex items-center gap-2 px-3 py-2 rounded-lg {{ request()->routeIs('readiness.*') ? 'bg-rose-50 text-rose-700 font-bold' : 'text-slate-600 hover:bg-slate-50' }}">
+                    <span>🛡️</span>
+                    <span>Kesiapan Persuratan (BLOCKED)</span>
+                </a>
             </nav>
 
             <div class="p-3 bg-amber-50 rounded-xl border border-amber-200 text-amber-900 text-[11px] leading-relaxed">
-                <strong>ATURAN KEAMANAN:</strong> Nomor surat resmi terkunci (OFF). Seluruh naskah berstatus nonresmi hingga disahkan secara administratif oleh Pengurus Yayasan P4I.
+                <strong>PENGAMAN M3A:</strong> Nomor resmi dinonaktifkan (OFF). Seluruh string penomoran berlabel <code class="bg-amber-100 px-1 py-0.5 rounded text-amber-800 font-mono">[SIMULASI]</code> dan register historis berada pada tabel staging terisolasi.
             </div>
         </aside>
         @endauth
@@ -98,10 +123,13 @@
             @endif
 
             @if($errors->any())
-                <div class="mb-4 p-3 bg-rose-50 border border-rose-200 text-rose-800 rounded-lg text-xs space-y-1">
-                    @foreach($errors->all() as $error)
-                        <div>• {{ $error }}</div>
-                    @endforeach
+                <div class="mb-4 p-3 bg-rose-50 border border-rose-200 text-rose-800 rounded-lg text-xs font-medium space-y-1">
+                    <div class="font-bold">Terjadi Kesalahan:</div>
+                    <ul class="list-disc list-inside">
+                        @foreach($errors->all() as $err)
+                            <li>{{ $err }}</li>
+                        @endforeach
+                    </ul>
                 </div>
             @endif
 
@@ -112,7 +140,7 @@
     <!-- Footer -->
     <footer class="bg-white border-t border-slate-200 py-4 mt-auto">
         <div class="max-w-7xl mx-auto px-4 text-center text-xs text-slate-500">
-            P4I Office v1.0 &copy; 2026 Yayasan Pusat Pendidikan dan Penelitian Pembangunan Indonesia. All rights reserved.
+            P4I Office v1.0 — Sprint M3A (Fondasi Penomoran & Agenda) &copy; 2026 Yayasan P4I. Semua hak dilindungi.
         </div>
     </footer>
 

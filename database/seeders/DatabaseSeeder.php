@@ -4,6 +4,9 @@ namespace Database\Seeders;
 
 use App\Models\ApprovalRequest;
 use App\Models\ApprovalStep;
+use App\Models\IncomingLetter;
+use App\Models\LegacyRegisterBatch;
+use App\Models\LegacyRegisterRow;
 use App\Models\Letter;
 use App\Models\LetterRevision;
 use App\Models\LetterStatusHistory;
@@ -440,5 +443,196 @@ class DatabaseSeeder extends Seeder
                 'reason' => 'Substansi surat disetujui sesuai laporan magang.',
             ]);
         }
+
+        // =========================================================================
+        // 9. SPRINT M3A SEEDER: POLICIES, LEGACY REGISTER STAGING, & INCOMING AGENDA
+        // =========================================================================
+
+        // 9.1 Kebijakan Penomoran Simulasi (NR-01, NR-02, NR-03, NR-04)
+        $policySK = NumberingPolicy::firstOrCreate(
+            ['organization_id' => $org->id, 'series_key' => 'SK_PENGURUS'],
+            [
+                'code' => 'P4I-SK',
+                'format_pattern' => '{seq:03}/{code}/{month_roman}/{year}',
+                'reset_period' => 'YEAR',
+                'padding' => 3,
+                'is_active' => false,
+                'status' => 'DRAFT',
+                'scope_type' => 'SERIES',
+                'description' => 'Draf format nomor Surat Keputusan Pengurus Yayasan P4I',
+                'legacy_reconciled' => false,
+            ]
+        );
+
+        $policyTugas = NumberingPolicy::firstOrCreate(
+            ['organization_id' => $org->id, 'series_key' => 'SURAT_TUGAS'],
+            [
+                'code' => 'P4I-ST',
+                'format_pattern' => '{seq:03}/{code}/{month_roman}/{year}',
+                'reset_period' => 'YEAR',
+                'padding' => 3,
+                'is_active' => false,
+                'status' => 'DRAFT',
+                'scope_type' => 'SERIES',
+                'description' => 'Draf format nomor Surat Tugas Pelaksanaan Riset / Advokasi',
+                'legacy_reconciled' => false,
+            ]
+        );
+
+        $policyKet = NumberingPolicy::firstOrCreate(
+            ['organization_id' => $org->id, 'series_key' => 'SURAT_KETERANGAN'],
+            [
+                'code' => 'P4I-KET',
+                'format_pattern' => '{seq:03}/{code}/{month_roman}/{year}',
+                'reset_period' => 'YEAR',
+                'padding' => 3,
+                'is_active' => false,
+                'status' => 'DRAFT',
+                'scope_type' => 'SERIES',
+                'description' => 'Draf format nomor Surat Keterangan Magang / Rekomendasi',
+                'legacy_reconciled' => false,
+            ]
+        );
+
+        // 9.2 Staging Register Historis dengan Anomali/Konflik Nyata (NR-05, NR-06, NR-07)
+        $batch = LegacyRegisterBatch::firstOrCreate(
+            [
+                'organization_id' => $org->id,
+                'source_filename' => 'rekap_register_persuratan_p4i_2023_2025.csv',
+            ],
+            [
+                'id' => '01a19361-b54a-7140-8b01-9a7e6b2c3d4e',
+                'source_hash' => hash('sha256', 'rekap_register_persuratan_p4i_2023_2025.csv-seed-p4i'),
+                'total_rows' => 5,
+                'valid_rows' => 3,
+                'conflict_rows' => 2,
+                'status' => 'HAS_CONFLICTS',
+                'imported_by' => $staf->id,
+                'notes' => "Rekap Buku Register Fisik Sekretariat Yayasan P4I Periode 2023-2025.\nDitemukan 2 anomali: 1 nomor duplikat dan 1 nomor kosong pada buku manual.",
+            ]
+        );
+
+        if ($batch->rows()->count() === 0) {
+            LegacyRegisterRow::create([
+                'batch_id' => $batch->id,
+                'row_index' => 1,
+                'raw_number' => '001/P4I/I/2024',
+                'normalized_number' => '001/P4I/I/2024',
+                'document_date' => '2024-01-10',
+                'letter_type_code' => 'SURAT_KELUAR',
+                'recipient' => 'Dinas Pendidikan Provinsi Jawa Barat',
+                'subject' => 'Permohonan Kerjasama Riset Analisis Kebijakan Daerah',
+                'is_valid' => true,
+                'verification_status' => 'UNVERIFIED',
+            ]);
+
+            LegacyRegisterRow::create([
+                'batch_id' => $batch->id,
+                'row_index' => 2,
+                'raw_number' => '002/P4I/I/2024',
+                'normalized_number' => '002/P4I/I/2024',
+                'document_date' => '2024-01-15',
+                'letter_type_code' => 'SURAT_TUGAS',
+                'recipient' => 'Dr. Hendra Wijaya',
+                'subject' => 'Surat Tugas Pendampingan Evaluasi Pembangunan Daerah',
+                'is_valid' => true,
+                'verification_status' => 'UNVERIFIED',
+            ]);
+
+            LegacyRegisterRow::create([
+                'batch_id' => $batch->id,
+                'row_index' => 3,
+                'raw_number' => '002/P4I/I/2024',
+                'normalized_number' => '002/P4I/I/2024',
+                'document_date' => '2024-01-18',
+                'letter_type_code' => 'SURAT_KELUAR',
+                'recipient' => 'Universitas Padjadjaran',
+                'subject' => 'Undangan FGD Diseminasi Riset Kebijakan',
+                'is_valid' => false,
+                'conflict_type' => 'DUPLICATE_NUMBER',
+                'conflict_details' => "Nomor '002/P4I/I/2024' terduplikasi dalam batch impor yang sama (baris 2).",
+                'verification_status' => 'UNVERIFIED',
+            ]);
+
+            LegacyRegisterRow::create([
+                'batch_id' => $batch->id,
+                'row_index' => 4,
+                'raw_number' => '004/P4I/II/2024',
+                'normalized_number' => '004/P4I/II/2024',
+                'document_date' => '2024-02-01',
+                'letter_type_code' => 'SURAT_KEPUTUSAN',
+                'recipient' => 'Internal Yayasan P4I',
+                'subject' => 'SK Pengangkatan Peneliti Madya Bidang Tata Kelola',
+                'is_valid' => true,
+                'verification_status' => 'UNVERIFIED',
+            ]);
+
+            LegacyRegisterRow::create([
+                'batch_id' => $batch->id,
+                'row_index' => 5,
+                'raw_number' => '',
+                'normalized_number' => null,
+                'document_date' => '2024-02-10',
+                'letter_type_code' => 'SURAT_KELUAR',
+                'recipient' => 'Bappeda Kota Bandung',
+                'subject' => 'Penyampaian Policy Brief Pembangunan Berkelanjutan',
+                'is_valid' => false,
+                'conflict_type' => 'EMPTY_NUMBER',
+                'conflict_details' => 'Nomor surat pada baris fisik ini kosong atau tidak terisi pada register.',
+                'verification_status' => 'UNVERIFIED',
+            ]);
+        }
+
+        // 9.3 Buku Agenda Surat Masuk dengan Nomor Terpisah (NR-12)
+        IncomingLetter::firstOrCreate(
+            ['internal_agenda_number' => 'AG-IN-2026-0001'],
+            [
+                'organization_id' => $org->id,
+                'sender_name' => 'Kementerian Perencanaan Pembangunan Nasional / Bappenas',
+                'sender_letter_number' => 'B-142/D.1/PPN/10/2026',
+                'letter_date' => '2026-10-25',
+                'received_date' => '2026-10-28',
+                'subject' => 'Undangan Rapat Koordinasi Rencana Aksi Nasional Riset Kebijakan 2027',
+                'classification' => 'INTERNAL',
+                'recipient_unit_id' => $sekretariat->id,
+                'recorded_by' => $staf->id,
+                'status' => 'REGISTERED',
+                'notes' => 'Diterima via kurir dinas bersama dokumen TOR rapat.',
+            ]
+        );
+
+        IncomingLetter::firstOrCreate(
+            ['internal_agenda_number' => 'AG-IN-2026-0002'],
+            [
+                'organization_id' => $org->id,
+                'sender_name' => 'Badan Riset dan Inovasi Nasional (BRIN)',
+                'sender_letter_number' => '1089/BRIN/II.3/2026',
+                'letter_date' => '2026-10-27',
+                'received_date' => '2026-10-29',
+                'subject' => 'Pemberitahuan Kelolosan Hibah Penelitian Terapan Multidisiplin Tahun Anggaran 2027',
+                'classification' => 'INTERNAL',
+                'recipient_unit_id' => $divisiRiset->id,
+                'recorded_by' => $staf->id,
+                'status' => 'REGISTERED',
+                'notes' => 'Tembusan telah diteruskan ke Direktur Riset.',
+            ]
+        );
+
+        IncomingLetter::firstOrCreate(
+            ['internal_agenda_number' => 'AG-IN-2026-0003'],
+            [
+                'organization_id' => $org->id,
+                'sender_name' => 'Pemerintah Provinsi DKI Jakarta',
+                'sender_letter_number' => '821/DKI/BAPEDA/X/2026',
+                'letter_date' => '2026-10-30',
+                'received_date' => '2026-10-31',
+                'subject' => 'Permohonan Narasumber Ahli Evaluasi Dampak Sosial Pembangunan Perkotaan',
+                'classification' => 'INTERNAL',
+                'recipient_unit_id' => $divisiRiset->id,
+                'recorded_by' => $staf->id,
+                'status' => 'REGISTERED',
+                'notes' => 'Acara dijadwalkan tanggal 12 November 2026 di Balai Kota.',
+            ]
+        );
     }
 }
