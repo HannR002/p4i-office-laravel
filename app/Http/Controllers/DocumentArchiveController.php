@@ -6,10 +6,12 @@ use App\Models\AuditEvent;
 use App\Models\DocumentExport;
 use App\Models\Letter;
 use App\Services\DocumentExportService;
+use App\Services\MandateValidationService;
 use DomainException;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\View\View;
 use InvalidArgumentException;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -17,7 +19,8 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 class DocumentArchiveController extends Controller
 {
     public function __construct(
-        protected DocumentExportService $exportService
+        protected DocumentExportService $exportService,
+        protected MandateValidationService $mandateService
     ) {}
 
     /**
@@ -64,13 +67,11 @@ class DocumentArchiveController extends Controller
             abort(403, 'Akses ditolak: Dokumen bukan milik organisasi pengguna.');
         }
 
-        // 2. Proteksi Dokumen CONFIDENTIAL / RAHASIA (M4A-09)
+        // 2. Proteksi Dokumen CONFIDENTIAL / RAHASIA (M4B-02, M4B-03, M4B-04)
         $letter = $export->letter;
         if (in_array($letter->classification, ['CONFIDENTIAL', 'RAHASIA'], true)) {
-            $isAuthor = $letter->author_id === $user->id;
-            $isReviewerOrAdmin = $user->isSystemAdmin() || $user->hasRole('REVIEWER') || $user->hasRole('PENGURUS_YAYASAN');
-            if (! $isAuthor && ! $isReviewerOrAdmin) {
-                abort(403, 'Akses ditolak: Dokumen rahasia hanya dapat diakses oleh konseptor dan penelaah.');
+            if (! $this->mandateService->canAccessConfidential($user, $letter, 'DOWNLOAD')) {
+                abort(403, 'Akses ditolak: Dokumen rahasia hanya dapat diakses oleh konseptor atau pemeriksa bermandat aktif yang sah.');
             }
         }
 
@@ -103,14 +104,31 @@ class DocumentArchiveController extends Controller
         $query = DocumentExport::where('organization_id', $user->organization_id)
             ->with(['letter', 'exporter']);
 
-        // Penegakan Kerahasiaan (Confidentiality Scoping):
-        // Pengguna non-admin / non-pengurus tidak dapat melihat arsip surat rahasia kecuali konseptornya sendiri.
-        if (! $user->isSystemAdmin() && ! $user->hasRole('PENGURUS_YAYASAN')) {
-            $query->whereHas('letter', function ($q) use ($user) {
-                $q->whereNotIn('classification', ['CONFIDENTIAL', 'RAHASIA'])
-                    ->orWhere('author_id', $user->id);
-            });
-        }
+        // Penegakan Kerahasiaan (Confidentiality Scoping - M4B-04):
+        // Dokumen rahasia hanya dapat dilihat oleh pembuat (author) atau pemeriksa yang memegang mandat aktif yang sah.
+        $query->whereHas('letter', function ($q) use ($user) {
+            $q->whereNotIn('classification', ['CONFIDENTIAL', 'RAHASIA'])
+                ->orWhere('author_id', $user->id)
+                ->orWhereExists(function ($sub) use ($user) {
+                    $today = now()->format('Y-m-d');
+                    $sub->select(DB::raw(1))
+                        ->from('signatory_mandates')
+                        ->where('signatory_mandates.organization_id', $user->organization_id)
+                        ->where('signatory_mandates.user_id', $user->id)
+                        ->where('signatory_mandates.status', 'ACTIVE')
+                        ->whereNull('signatory_mandates.revoked_at')
+                        ->whereDate('signatory_mandates.valid_from', '<=', $today)
+                        ->whereDate('signatory_mandates.valid_to', '>=', $today)
+                        ->where(function ($m) {
+                            $m->where('signatory_mandates.can_review', true)
+                                ->orWhere('signatory_mandates.can_approve', true);
+                        })
+                        ->where(function ($m) {
+                            $m->whereNull('signatory_mandates.letter_type_id')
+                                ->orWhereColumn('signatory_mandates.letter_type_id', 'letters.letter_type_id');
+                        });
+                });
+        });
 
         // Filter Format
         if ($request->filled('format') && in_array(strtoupper($request->format), ['PDF', 'DOCX'], true)) {

@@ -38,12 +38,10 @@ class DocumentExportService
             throw new DomainException('Akses ditolak: Surat bukan milik organisasi pengguna.');
         }
 
-        // 2. Proteksi Dokumen Berklasifikasi CONFIDENTIAL / RAHASIA (M4A-09)
+        // 2. Proteksi Dokumen Berklasifikasi CONFIDENTIAL / RAHASIA (M4B-02, M4B-03, M4B-04)
         if (in_array($letter->classification, ['CONFIDENTIAL', 'RAHASIA'], true)) {
-            $isAuthor = $letter->author_id === $user->id;
-            $isReviewerOrAdmin = $user->isSystemAdmin() || $user->hasRole('REVIEWER') || $user->hasRole('PENGURUS_YAYASAN');
-            if (! $isAuthor && ! $isReviewerOrAdmin) {
-                throw new DomainException('Akses ditolak: Dokumen berklasifikasi RAHASIA (CONFIDENTIAL) hanya dapat diakses oleh konseptor dan penelaah.');
+            if (! app(MandateValidationService::class)->canAccessConfidential($user, $letter, 'EXPORT')) {
+                throw new DomainException('Akses ditolak: Dokumen berklasifikasi RAHASIA (CONFIDENTIAL) hanya dapat diakses oleh konseptor atau pemeriksa bermandat aktif yang sah.');
             }
         }
 
@@ -197,6 +195,24 @@ class DocumentExportService
             return trim(strip_tags((string) $clean));
         }, $bodyParagraphs);
 
+        // Dukungan data tabel bila disediakan dalam revisi (M4B-07)
+        $tables = [];
+        if (isset($content['tables']) && is_array($content['tables'])) {
+            foreach ($content['tables'] as $tbl) {
+                if (is_array($tbl)) {
+                    $cleanRows = [];
+                    foreach ($tbl as $row) {
+                        if (is_array($row)) {
+                            $cleanRows[] = array_map(fn ($c) => htmlspecialchars(trim(strip_tags((string) $c)), ENT_QUOTES, 'UTF-8'), $row);
+                        }
+                    }
+                    if (! empty($cleanRows)) {
+                        $tables[] = $cleanRows;
+                    }
+                }
+            }
+        }
+
         $dateFormatted = Carbon::parse($letter->planned_date ?: now())->locale('id')->translatedFormat('d F Y');
 
         // Nomor Surat: Tetap NULL / Pratinjau Draf Simulasi (M4A-05)
@@ -214,6 +230,7 @@ class DocumentExportService
             'subject' => htmlspecialchars($letter->subject, ENT_QUOTES, 'UTF-8'),
             'body_paragraphs' => $cleanParagraphs,
             'plain_body_paragraphs' => $plainParagraphs,
+            'tables' => $tables,
             'revision_version' => $revision->version,
             'exported_by_name' => $exporter->display_name,
             'exported_at' => Carbon::now()->format('d/m/Y H:i:s').' WIB',
@@ -252,7 +269,29 @@ class DocumentExportService
     {
         $paragraphsHtml = '';
         foreach ($ctx['body_paragraphs'] as $p) {
-            $paragraphsHtml .= '<p style="margin-bottom: 12px; text-align: justify; line-height: 1.6;">'.$p.'</p>';
+            if ($p === '[PAGE_BREAK]') {
+                $paragraphsHtml .= '<div style="page-break-after: always; height: 0; line-height: 0;"></div>';
+            } else {
+                $paragraphsHtml .= '<p style="margin-bottom: 12px; text-align: justify; line-height: 1.6;">'.$p.'</p>';
+            }
+        }
+
+        $tablesHtml = '';
+        if (! empty($ctx['tables'])) {
+            foreach ($ctx['tables'] as $tbl) {
+                $tablesHtml .= '<table style="width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 10pt;">';
+                foreach ($tbl as $rIndex => $row) {
+                    $tablesHtml .= '<tr>';
+                    foreach ($row as $cell) {
+                        $isHeader = ($rIndex === 0);
+                        $tag = $isHeader ? 'th' : 'td';
+                        $bg = $isHeader ? 'background-color: #f3f4f6; font-weight: bold;' : '';
+                        $tablesHtml .= "<{$tag} style=\"border: 1px solid #9ca3af; padding: 6px 8px; text-align: left; {$bg}\">{$cell}</{$tag}>";
+                    }
+                    $tablesHtml .= '</tr>';
+                }
+                $tablesHtml .= '</table>';
+            }
         }
 
         return <<<HTML
@@ -285,6 +324,19 @@ class DocumentExportService
             z-index: -1000;
             text-transform: uppercase;
             line-height: 1.3;
+        }
+        .page-footer {
+            position: fixed;
+            bottom: -15mm;
+            left: 0;
+            right: 0;
+            height: 8mm;
+            font-size: 8pt;
+            color: #b91c1c;
+            text-align: center;
+            border-top: 1px dashed #fca5a5;
+            padding-top: 3px;
+            font-weight: bold;
         }
         .kop-table {
             width: 100%;
@@ -351,6 +403,11 @@ class DocumentExportService
     <div class="watermark">
         DRAF — BELUM RESMI<br>
         <span style="font-size: 18pt;">TIDAK BERLAKU SEBAGAI SURAT RESMI</span>
+    </div>
+
+    <!-- Footer Watermark di Setiap Halaman (M4B-05) -->
+    <div class="page-footer">
+        DRAF SIMULASI P4I — TIDAK BERLAKU SEBAGAI SURAT RESMI — NOMOR RESMI STRICTLY NULL
     </div>
 
     <!-- Kop Naskah Dinas Yayasan P4I -->
@@ -478,7 +535,28 @@ HTML;
 
         // 5. Isi Naskah Dinas
         foreach ($ctx['plain_body_paragraphs'] as $p) {
-            $section->addText($p, [], ['alignment' => Jc::BOTH, 'spaceAfter' => 180]);
+            if ($p === '[PAGE_BREAK]') {
+                $section->addPageBreak();
+            } else {
+                $section->addText($p, [], ['alignment' => Jc::BOTH, 'spaceAfter' => 180]);
+            }
+        }
+
+        // Tabel Data Lampiran (bila ada) (M4B-07)
+        if (! empty($ctx['tables'])) {
+            foreach ($ctx['tables'] as $tbl) {
+                $table = $section->addTable(['borderSize' => 6, 'borderColor' => '999999', 'afterSpacing' => 120]);
+                foreach ($tbl as $rIndex => $row) {
+                    $table->addRow();
+                    $isHeader = ($rIndex === 0);
+                    foreach ($row as $cell) {
+                        $cellBg = $isHeader ? 'F3F4F6' : 'FFFFFF';
+                        $cellObj = $table->addCell(2500, ['bgColor' => $cellBg, 'valign' => 'center']);
+                        $cellObj->addText((string) $cell, ['bold' => $isHeader, 'size' => 10]);
+                    }
+                }
+                $section->addTextBreak(1);
+            }
         }
 
         $section->addTextBreak(1);
@@ -518,13 +596,11 @@ HTML;
             throw new DomainException('Akses ditolak: Dokumen bukan milik organisasi pengguna.');
         }
 
-        // 3. Verifikasi Izin Klasifikasi CONFIDENTIAL / RAHASIA (M4A-09)
+        // 3. Verifikasi Izin Klasifikasi CONFIDENTIAL / RAHASIA (M4B-02, M4B-03, M4B-04)
         $letter = $export->letter;
         if (in_array($letter->classification, ['CONFIDENTIAL', 'RAHASIA'], true)) {
-            $isAuthor = $letter->author_id === $user->id;
-            $isReviewerOrAdmin = $user->isSystemAdmin() || $user->hasRole('REVIEWER') || $user->hasRole('PENGURUS_YAYASAN');
-            if (! $isAuthor && ! $isReviewerOrAdmin) {
-                throw new DomainException('Akses ditolak: Dokumen rahasia hanya dapat diunduh oleh konseptor atau penelaah naskah.');
+            if (! app(MandateValidationService::class)->canAccessConfidential($user, $letter, 'DOWNLOAD')) {
+                throw new DomainException('Akses ditolak: Dokumen rahasia hanya dapat diunduh oleh konseptor atau pemeriksa bermandat aktif yang sah.');
             }
         }
 

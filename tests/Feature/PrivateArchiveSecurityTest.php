@@ -10,6 +10,7 @@ use App\Models\LetterType;
 use App\Models\Organization;
 use App\Models\OrgUnit;
 use App\Models\Role;
+use App\Models\SignatoryMandate;
 use App\Models\User;
 use App\Services\DocumentExportService;
 use App\Services\ReadinessService;
@@ -253,17 +254,32 @@ class PrivateArchiveSecurityTest extends TestCase
         [$letter, $revision] = $this->createLetter('RAHASIA');
         $export = $this->exportService->exportLetter($this->authorA, $letter, 'PDF');
 
-        // Staf lain dari organisasi yang sama (bukan author, bukan admin) ditolak 403
+        // Staf / Pejabat tanpa mandat ditolak 403
         $resOther = $this->actingAs($this->otherStaffA)->get(route('archives.download', $export));
         $resOther->assertStatus(403);
+
+        // Reviewer/Admin tanpa mandat sah juga ditolak 403 (M4B-02)
+        $resAdminNoMandate = $this->actingAs($this->adminA)->get(route('archives.download', $export));
+        $resAdminNoMandate->assertStatus(403);
 
         // Author pemilik dokumen diizinkan mengunduh
         $resAuthor = $this->actingAs($this->authorA)->get(route('archives.download', $export));
         $resAuthor->assertStatus(200);
 
-        // Admin diizinkan mengunduh
-        $resAdmin = $this->actingAs($this->adminA)->get(route('archives.download', $export));
-        $resAdmin->assertStatus(200);
+        // Pejabat yang memiliki Mandat Aktif sah diizinkan mengunduh (M4B-04)
+        SignatoryMandate::create([
+            'id' => (string) Str::uuid(),
+            'organization_id' => $this->orgA->id,
+            'user_id' => $this->adminA->id,
+            'letter_type_id' => $this->letterTypeA->id,
+            'can_review' => true,
+            'status' => 'ACTIVE',
+            'valid_from' => now()->subDay()->toDateString(),
+            'valid_to' => now()->addDays(30)->toDateString(),
+            'decree_number' => 'SK-M4B-CONFIDENTIAL',
+        ]);
+        $resAdminWithMandate = $this->actingAs($this->adminA)->get(route('archives.download', $export));
+        $resAdminWithMandate->assertStatus(200);
     }
 
     /**

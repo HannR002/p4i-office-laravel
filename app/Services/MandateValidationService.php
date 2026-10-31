@@ -112,4 +112,79 @@ class MandateValidationService
             return false;
         }
     }
+
+    /**
+     * Memvalidasi kewenangan akses terhadap naskah dinas berklasifikasi RAHASIA / CONFIDENTIAL (M4B-02, M4B-03, M4B-04).
+     *
+     * Akses hanya diizinkan untuk:
+     * 1. Pembuat naskah dinas (Author/Konseptor).
+     * 2. Pejabat yang memiliki Mandat Aktif (SignatoryMandate) yang sah dan mencakup:
+     *    - Akun pengguna berstatus ACTIVE.
+     *    - Berada pada organisasi yang sama (multi-tenant).
+     *    - Mandat berstatus ACTIVE dan belum dicabut (revoked_at IS NULL).
+     *    - Tanggal saat ini berada dalam rentang valid_from s/d valid_to.
+     *    - Memiliki kewenangan review atau approve (can_review atau can_approve).
+     *    - Jenis surat cocok (letter_type_id IS NULL atau sama).
+     *    - Unit kerja cocok jika dispesifikasikan (mandate unit_id IS NULL atau sama).
+     *
+     * Penegasan Keamanan (Sprint M4B):
+     * Peran teknis (REVIEWER, SYSTEM_ADMIN, PENGURUS_YAYASAN) TIDAK memberikan bypass otomatis
+     * tanpa kepemilikan naskah atau mandat sah yang terbukti berlaku.
+     */
+    public function canAccessConfidential(User $user, Letter $letter, string $action = 'VIEW'): bool
+    {
+        // 1. Akun pengguna harus berstatus aktif
+        if (! $user->isActive()) {
+            return false;
+        }
+
+        // 2. Isolasi multi-tenant mutlak
+        if ($user->organization_id !== $letter->organization_id) {
+            return false;
+        }
+
+        // 3. Hak Pemilik / Pembuat Naskah (Author)
+        if ($letter->author_id === $user->id) {
+            return true;
+        }
+
+        // 4. Verifikasi Mandat Aktif Pejabat Pemeriksa
+        $today = now()->format('Y-m-d');
+        $targetUnitId = $letter->unit_id ?: $letter->author?->unit_id;
+
+        $query = SignatoryMandate::where('organization_id', $letter->organization_id)
+            ->where('user_id', $user->id)
+            ->where('status', 'ACTIVE')
+            ->whereNull('revoked_at')
+            ->whereDate('valid_from', '<=', $today)
+            ->whereDate('valid_to', '>=', $today);
+
+        // Filter kewenangan penelaah
+        if (in_array(strtoupper($action), ['APPROVE', 'SIGN'], true)) {
+            $query->where('can_approve', true);
+        } else {
+            $query->where(function ($q) {
+                $q->where('can_review', true)
+                    ->orWhere('can_approve', true);
+            });
+        }
+
+        // Filter jenis surat
+        $query->where(function ($q) use ($letter) {
+            $q->whereNull('letter_type_id')
+                ->orWhere('letter_type_id', $letter->letter_type_id);
+        });
+
+        // Filter unit kerja jika mandat dibatasi untuk unit tertentu
+        if ($targetUnitId) {
+            $query->where(function ($q) use ($targetUnitId) {
+                $q->whereNull('unit_id')
+                    ->orWhere('unit_id', $targetUnitId);
+            });
+        } else {
+            $query->whereNull('unit_id');
+        }
+
+        return $query->exists();
+    }
 }

@@ -3,8 +3,8 @@
 namespace App\Policies;
 
 use App\Models\Letter;
-use App\Models\SignatoryMandate;
 use App\Models\User;
+use App\Services\MandateValidationService;
 
 class LetterPolicy
 {
@@ -31,30 +31,36 @@ class LetterPolicy
             return false;
         }
 
-        // 2. Proteksi Dokumen Rahasia (CONFIDENTIAL / RAHASIA)
-        if ($letter->classification === 'RAHASIA') {
-            // Pembuat surat, System Admin, atau Pengurus Yayasan
-            if ($letter->author_id === $user->id || $user->isSystemAdmin() || $user->hasRole('PENGURUS_YAYASAN')) {
-                return true;
-            }
-
-            // Reviewer yang memiliki mandat aktif untuk jenis surat ini
-            $hasActiveMandate = SignatoryMandate::where('organization_id', $letter->organization_id)
-                ->where('user_id', $user->id)
-                ->where('status', 'ACTIVE')
-                ->whereNull('revoked_at')
-                ->whereDate('valid_from', '<=', now()->format('Y-m-d'))
-                ->whereDate('valid_to', '>=', now()->format('Y-m-d'))
-                ->where(function ($q) use ($letter) {
-                    $q->whereNull('letter_type_id')
-                        ->orWhere('letter_type_id', $letter->letter_type_id);
-                })
-                ->exists();
-
-            return $hasActiveMandate;
+        // 2. Proteksi Dokumen Rahasia (CONFIDENTIAL / RAHASIA) (M4B-02, M4B-03, M4B-04)
+        if (in_array($letter->classification, ['CONFIDENTIAL', 'RAHASIA'], true)) {
+            return app(MandateValidationService::class)->canAccessConfidential($user, $letter, 'VIEW');
         }
 
         return true;
+    }
+
+    /**
+     * Menentukan apakah pengguna dapat mengekspor naskah surat (M4B-04).
+     */
+    public function export(User $user, Letter $letter): bool
+    {
+        if (! $user->isActive() || $user->organization_id !== $letter->organization_id) {
+            return false;
+        }
+
+        if (in_array($letter->classification, ['CONFIDENTIAL', 'RAHASIA'], true)) {
+            return app(MandateValidationService::class)->canAccessConfidential($user, $letter, 'EXPORT');
+        }
+
+        return true;
+    }
+
+    /**
+     * Menentukan apakah pengguna dapat mengunduh arsip naskah surat (M4B-04).
+     */
+    public function download(User $user, Letter $letter): bool
+    {
+        return $this->export($user, $letter);
     }
 
     /**
