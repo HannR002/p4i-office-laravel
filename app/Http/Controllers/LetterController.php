@@ -128,6 +128,7 @@ class LetterController extends Controller
             'template',
             'author.unit',
             'latestRevision',
+            'documentExports.exporter',
         ]);
 
         $currentRevision = $letter->latestRevision;

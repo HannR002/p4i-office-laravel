@@ -4,6 +4,7 @@ use App\Http\Controllers\AgendaController;
 use App\Http\Controllers\ApprovalController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\DocumentArchiveController;
 use App\Http\Controllers\LegacyRegisterController;
 use App\Http\Controllers\LetterController;
 use App\Http\Controllers\MandateController;
@@ -85,6 +86,13 @@ Route::middleware(['auth', 'active.user'])->group(function () {
 
     // Modul Laporan Kesiapan Persuratan Yayasan (Sprint M3A)
     Route::get('/readiness', [ReadinessController::class, 'index'])->name('readiness.index');
+
+    // Modul Ekspor Naskah & Arsip Digital Privat (Sprint M4A)
+    Route::post('/letters/{letter}/export', [DocumentArchiveController::class, 'export'])->name('letters.export');
+    Route::get('/archives', [DocumentArchiveController::class, 'index'])->name('archives.index');
+    Route::get('/archives/admin', [DocumentArchiveController::class, 'admin'])->name('archives.admin');
+    Route::post('/archives/admin/verify', [DocumentArchiveController::class, 'verifyIntegrity'])->name('archives.admin.verify');
+    Route::get('/archives/{export}/download', [DocumentArchiveController::class, 'download'])->name('archives.download');
 
     // Logout
     Route::post('/logout', [AuthController::class, 'logout'])->name('logout');

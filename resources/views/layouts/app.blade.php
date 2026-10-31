@@ -106,10 +106,25 @@
                     <span>🛡️</span>
                     <span>Kesiapan Persuratan (BLOCKED)</span>
                 </a>
+                <div class="pt-2 pb-1 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                    Sprint M4A: Arsip & Ekspor
+                </div>
+
+                <a href="{{ route('archives.index') }}" class="flex items-center gap-2 px-3 py-2 rounded-lg {{ request()->routeIs('archives.index') ? 'bg-indigo-50 text-indigo-700 font-bold' : 'text-slate-600 hover:bg-slate-50' }}">
+                    <span>📦</span>
+                    <span>Arsip Digital Dokumen</span>
+                </a>
+
+                @if(Auth::user()->isSystemAdmin() || Auth::user()->hasRole('PENGURUS_YAYASAN'))
+                <a href="{{ route('archives.admin') }}" class="flex items-center gap-2 px-3 py-2 rounded-lg {{ request()->routeIs('archives.admin*') ? 'bg-indigo-50 text-indigo-700 font-bold' : 'text-slate-600 hover:bg-slate-50' }}">
+                    <span>🛡️</span>
+                    <span>Pengawasan Integritas Arsip</span>
+                </a>
+                @endif
             </nav>
 
             <div class="p-3 bg-amber-50 rounded-xl border border-amber-200 text-amber-900 text-[11px] leading-relaxed">
-                <strong>PENGAMAN M3A:</strong> Nomor resmi dinonaktifkan (OFF). Seluruh string penomoran berlabel <code class="bg-amber-100 px-1 py-0.5 rounded text-amber-800 font-mono">[SIMULASI]</code> dan register historis berada pada tabel staging terisolasi.
+                <strong>PENGAMAN PERSURATAN:</strong> Nomor resmi dinonaktifkan (OFF). Dokumen ekspor PDF/DOCX berstatus DRAF SIMULASI dengan watermark permanen, isolasi penyimpanan privat, dan verifikasi checksum SHA-256.
             </div>
         </aside>
         @endauth

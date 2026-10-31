@@ -133,6 +133,25 @@
                 </a>
             @endcan
 
+            <!-- Ekspor Dokumen Sprint M4A -->
+            <form action="{{ route('letters.export', $letter) }}" method="POST" class="inline">
+                @csrf
+                <input type="hidden" name="format" value="PDF">
+                <button type="submit" class="inline-flex items-center gap-1.5 px-3.5 py-2 bg-rose-700 hover:bg-rose-800 text-white text-xs font-semibold rounded-lg shadow-sm transition-colors" title="Ekspor Draf ke format PDF ber-watermark">
+                    <span>📄</span>
+                    <span>Unduh Draf PDF</span>
+                </button>
+            </form>
+
+            <form action="{{ route('letters.export', $letter) }}" method="POST" class="inline">
+                @csrf
+                <input type="hidden" name="format" value="DOCX">
+                <button type="submit" class="inline-flex items-center gap-1.5 px-3.5 py-2 bg-sky-700 hover:bg-sky-800 text-white text-xs font-semibold rounded-lg shadow-sm transition-colors" title="Ekspor Draf ke format DOCX terstruktur">
+                    <span>📝</span>
+                    <span>Unduh Draf DOCX</span>
+                </button>
+            </form>
+
             <a href="{{ route('letters.preview', $letter) }}" target="_blank" class="inline-flex items-center gap-1.5 px-3.5 py-2 bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold rounded-lg shadow-sm transition-colors">
                 <span>🖨️</span>
                 <span>Pratinjau Watermark</span>
@@ -203,6 +222,90 @@
                         </dl>
                     </div>
                 @endif
+            </div>
+
+            <!-- Arsip Berkas Ekspor Digital (Sprint M4A) -->
+            <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                <div class="bg-slate-50 px-5 py-3 border-b border-slate-200 flex items-center justify-between">
+                    <div class="font-bold text-xs text-slate-800 flex items-center gap-2">
+                        <span>📦</span>
+                        <span>Berkas Ekspor & Arsip Digital Privat (Sprint M4A)</span>
+                    </div>
+                    <span class="text-[11px] font-semibold text-slate-500">
+                        {{ $letter->documentExports->count() }} Berkas Diarsipkan
+                    </span>
+                </div>
+
+                <div class="p-4">
+                    @if($letter->documentExports->isNotEmpty())
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left text-xs">
+                                <thead>
+                                    <tr class="border-b border-slate-200 text-slate-500 text-[11px]">
+                                        <th class="pb-2 font-semibold">Format</th>
+                                        <th class="pb-2 font-semibold">Revisi</th>
+                                        <th class="pb-2 font-semibold">Checksum SHA-256</th>
+                                        <th class="pb-2 font-semibold">Ukuran</th>
+                                        <th class="pb-2 font-semibold">Diekspor Oleh</th>
+                                        <th class="pb-2 font-semibold">Unduhan</th>
+                                        <th class="pb-2 text-right font-semibold">Aksi</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-slate-100">
+                                    @foreach($letter->documentExports->sortByDesc('created_at') as $export)
+                                        <tr class="hover:bg-slate-50">
+                                            <td class="py-2.5">
+                                                @if($export->format === 'PDF')
+                                                    <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-200">PDF</span>
+                                                @else
+                                                    <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-sky-100 text-sky-800 border border-sky-200">DOCX</span>
+                                                @endif
+                                            </td>
+                                            <td class="py-2.5 font-bold text-slate-800">
+                                                v{{ $export->revision_version }}
+                                            </td>
+                                            <td class="py-2.5 font-mono text-[10px] text-slate-600 truncate max-w-[140px]" title="{{ $export->file_hash }}">
+                                                {{ substr($export->file_hash, 0, 12) }}...{{ substr($export->file_hash, -4) }}
+                                            </td>
+                                            <td class="py-2.5 text-slate-600">
+                                                {{ $export->file_size_formatted }}
+                                            </td>
+                                            <td class="py-2.5 text-slate-600">
+                                                {{ $export->exporter->display_name ?? 'Sistem' }}<br>
+                                                <span class="text-[10px] text-slate-400">{{ \Carbon\Carbon::parse($export->created_at)->format('d/m/Y H:i') }}</span>
+                                            </td>
+                                            <td class="py-2.5 text-slate-600">
+                                                <span class="font-bold text-slate-800">{{ $export->download_count }}x</span>
+                                                @if($export->last_downloaded_at)
+                                                    <div class="text-[10px] text-slate-400">{{ \Carbon\Carbon::parse($export->last_downloaded_at)->format('d/m H:i') }}</div>
+                                                @endif
+                                            </td>
+                                            <td class="py-2.5 text-right">
+                                                @if($export->isReady())
+                                                    <a href="{{ route('archives.download', $export) }}" class="inline-flex items-center gap-1 px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-semibold rounded text-[11px] border border-indigo-200 transition-colors">
+                                                        <span>⬇️</span>
+                                                        <span>Unduh</span>
+                                                    </a>
+                                                @elseif($export->isError())
+                                                    <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200">Gagal</span>
+                                                @else
+                                                    <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200 animate-pulse">Memproses...</span>
+                                                @endif
+                                            </td>
+                                        </tr>
+                                    @endforeach
+                                </tbody>
+                            </table>
+                        </div>
+                    @else
+                        <div class="text-center py-6 text-slate-400 text-xs">
+                            <span class="text-2xl block mb-1">📂</span>
+                            Belum ada berkas ekspor untuk naskah surat ini.<br>
+                            Gunakan tombol <strong>Unduh Draf PDF</strong> atau <strong>Unduh Draf DOCX</strong> di atas untuk menghasilkan arsip dokumen.
+                        </div>
+                    @endif
+                </div>
+            </div>
             </div>
         </div>
 
