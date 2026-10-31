@@ -31,6 +31,10 @@ class LegacyRegisterRow extends Model
         'reconciliation_action',
         'reconciliation_notes',
         'board_resolution_ref',
+        'proposed_by',
+        'proposed_at',
+        'proposed_action',
+        'proposed_notes',
         'verified_by',
         'verified_at',
     ];
@@ -40,12 +44,18 @@ class LegacyRegisterRow extends Model
         'is_valid' => 'boolean',
         'document_date' => 'date',
         'provenance_year' => 'integer',
+        'proposed_at' => 'datetime',
         'verified_at' => 'datetime',
     ];
 
     public function batch(): BelongsTo
     {
         return $this->belongsTo(LegacyRegisterBatch::class, 'batch_id');
+    }
+
+    public function proposer(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'proposed_by');
     }
 
     public function verifier(): BelongsTo

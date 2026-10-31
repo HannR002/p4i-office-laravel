@@ -134,3 +134,4 @@ Jika salah satu pilar belum berstatus `VERIFIED`, status keseluruhan **DIBLOKIR 
 5. `docs/numbering-sop-decision-worksheet.md`
 6. `docs/activation-readiness-report.md`
 7. Seluruh tangkapan layar di `docs/screenshots/`
+

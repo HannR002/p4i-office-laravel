@@ -509,8 +509,9 @@ class DatabaseSeeder extends Seeder
                 'valid_rows' => 3,
                 'conflict_rows' => 2,
                 'status' => 'HAS_CONFLICTS',
+                'is_sample' => true,
                 'imported_by' => $staf->id,
-                'notes' => "Rekap Buku Register Fisik Sekretariat Yayasan P4I Periode 2023-2025.\nDitemukan 2 anomali: 1 nomor duplikat dan 1 nomor kosong pada buku manual.",
+                'notes' => "BATCH REGISTER SAMPEL PENGEMBANGAN TEKNIS (BUKAN REKONSILIASI ARSIP FISIK ASLI P4I).\nRekap Buku Register Fisik Sekretariat Yayasan P4I Periode 2023-2025.\nDitemukan 2 anomali: 1 nomor duplikat dan 1 nomor kosong pada buku manual.",
             ]
         );
 

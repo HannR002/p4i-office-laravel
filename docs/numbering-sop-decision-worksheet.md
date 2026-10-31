@@ -129,3 +129,4 @@ KETIGA   : Keputusan ini berlaku sejak tanggal ditetapkan.
 1. **Rapat Pleno Pengurus:** Pembahasan dan penandatanganan SK No. 01/SK-P4I/XI/2026 dan SK No. 02/SK-P4I/XI/2026 oleh Dewan Pengurus.
 2. **Penyampaian SK ke Auditor GPT-6:** Menyerahkan salinan SK yang telah ditandatangani sebagai bukti penyelesaian Pilar 1, 3, dan 4.
 3. **Pemberian Wewenang Aktivasi Teknis:** Setelah seluruh pilar disahkan, Pengurus Yayasan menerbitkan Instruksi Kerja Teknis Aktivasi untuk Sprint M3C mendatang.
+

@@ -20,6 +20,7 @@ class LegacyRegisterBatch extends Model
         'valid_rows',
         'conflict_rows',
         'status',
+        'is_sample',
         'imported_by',
         'notes',
     ];
@@ -28,6 +29,7 @@ class LegacyRegisterBatch extends Model
         'total_rows' => 'integer',
         'valid_rows' => 'integer',
         'conflict_rows' => 'integer',
+        'is_sample' => 'boolean',
     ];
 
     public function organization(): BelongsTo

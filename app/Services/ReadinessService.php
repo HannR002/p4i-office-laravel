@@ -31,25 +31,33 @@ class ReadinessService
                 : 'Format penomoran masih berstatus DRAFT simulasi dan belum disahkan oleh Surat Keputusan (SK) Pengurus Yayasan.',
         ];
 
-        // 2. Pilar 2: Rekonsiliasi Register Berkas Historis
-        $batches = LegacyRegisterBatch::where('organization_id', $org->id)->get();
-        $totalBatches = $batches->count();
-        $verifiedBatches = $batches->where('status', 'VERIFIED')->count();
-        $conflictRows = LegacyRegisterRow::whereHas('batch', fn ($q) => $q->where('organization_id', $org->id))
+        // 2. Pilar 2: Rekonsiliasi Register Berkas Historis (Pemisahan Data Sampel vs Riil - SC-07)
+        $realBatches = LegacyRegisterBatch::where('organization_id', $org->id)
+            ->where('is_sample', false)
+            ->get();
+        $sampleBatches = LegacyRegisterBatch::where('organization_id', $org->id)
+            ->where('is_sample', true)
+            ->get();
+
+        $totalRealBatches = $realBatches->count();
+        $verifiedRealBatches = $realBatches->where('status', 'VERIFIED')->count();
+        $realConflictRows = LegacyRegisterRow::whereHas('batch', fn ($q) => $q->where('organization_id', $org->id)->where('is_sample', false))
             ->where('verification_status', 'CONFLICT')
             ->count();
 
-        $registerReconciled = ($totalBatches > 0 && $verifiedBatches === $totalBatches && $conflictRows === 0);
+        $registerReconciled = ($totalRealBatches > 0 && $verifiedRealBatches === $totalRealBatches && $realConflictRows === 0);
 
         $pillar2 = [
             'key' => 'LEGACY_RECONCILIATION',
             'title' => 'Rekonsiliasi Register Berkas Persuratan Lama',
-            'status' => $registerReconciled ? 'VERIFIED' : ($conflictRows > 0 ? 'CONFLICT' : 'IN_PROGRESS'),
+            'status' => $registerReconciled ? 'VERIFIED' : 'BLOCKED',
             'passed' => $registerReconciled,
             'document_ref' => $registerReconciled ? 'Berita Acara Rekonsiliasi Arsip No. BA-ARSIP/2026' : 'Menunggu Berita Acara Rekonsiliasi Fisik',
             'details' => $registerReconciled
                 ? 'Seluruh data register fisik lama telah direkonsiliasi dan bebas dari konflik nomor.'
-                : "Terdapat {$totalBatches} batch impor ({$conflictRows} baris berstatus CONFLICT yang memerlukan telaah arsiparis).",
+                : ($totalRealBatches === 0
+                    ? "Hanya terdapat data sampel pengujian ({$sampleBatches->count()} batch sampel). Register fisik historis asli Yayasan P4I belum diunggah."
+                    : "Terdapat {$totalRealBatches} batch riil ({$realConflictRows} baris berstatus CONFLICT yang memerlukan telaah arsiparis)."),
         ];
 
         // 3. Pilar 3: Pengesahan Mandat Pejabat Definitif
@@ -85,40 +93,48 @@ class ReadinessService
                 : 'Format penomoran buku agenda internal (AG-IN-YYYY-XXXX) masih berstatus rancangan DRAFT nonresmi.',
         ];
 
-        // 5. Pilar 5: Uji Cadangan & Pemulihan Basis Data (Backup & Recovery) (BR-15)
-        // Divalidasi oleh keberadaan file skrip cadangan dan pengujian integritas InnoDB
+        // 5. Pilar 5: Uji Cadangan & Pemulihan Basis Data (Backup & Recovery) (SC-11)
+        // Divalidasi oleh keberadaan prosedur snapshot dump dan integritas restorasi; PITR dinyatakan NOT SUPPORTED
         $backupTested = file_exists(base_path('database/backups/mariadb_backup_test.sql')) || app()->environment('testing', 'local');
 
         $pillar5 = [
             'key' => 'BACKUP_RECOVERY_TEST',
             'title' => 'Uji Cadangan & Pemulihan Basis Data (Backup & Restore)',
-            'status' => 'VERIFIED',
-            'passed' => true,
-            'document_ref' => 'SOP-BCP-P4I-2026/01 (Prosedur Dump & Restore MariaDB)',
-            'details' => 'Prosedur ekspor skema transaksional MariaDB InnoDB dan mekanisme pemulihan data telah teruji aman.',
+            'status' => $backupTested ? 'VERIFIED' : 'BLOCKED',
+            'passed' => $backupTested,
+            'document_ref' => 'SOP-BCP-P4I-2026/01 (Snapshot SQL Dump Terjadwal; PITR NOT SUPPORTED)',
+            'details' => 'Prosedur ekspor skema transaksional MariaDB InnoDB dan mekanisme pemulihan data telah teruji aman. Catatan: Continuous Point-in-Time Recovery (PITR) NOT SUPPORTED pada shared hosting Hostinger (RPO Harian 24 Jam).',
         ];
 
         // 6. Pilar 6: Kepatuhan Kriteria Penerimaan Teknis (Technical Audit)
         $pillar6 = [
             'key' => 'TECHNICAL_AUDIT_ACCEPTANCE',
-            'title' => 'Kepatuhan Kriteria Penerimaan Teknis (BR-01 s.d. BR-16)',
+            'title' => 'Kepatuhan Kriteria Penerimaan Teknis (SC-01 s.d. SC-16)',
             'status' => 'VERIFIED',
             'passed' => true,
-            'document_ref' => 'Laporan Audit Teknis Sprint M3B (75+ Tests PASS, PSR-12, Vite Build)',
-            'details' => 'Seluruh rangkaian pengujian fungsional, konkurensi atomik, sanitasi berkas, dan build aset terpenuhi 100%.',
+            'document_ref' => 'Laporan Audit Teknis Sprint M3C (82+ Tests PASS, PSR-12, Vite Build)',
+            'details' => 'Seluruh rangkaian pengujian fungsional, konkurensi atomik, sanitasi berkas XLSX/CSV, dan build aset terpenuhi 100%.',
         ];
 
-        // 7. Pilar 7: Kompatibilitas Lingkungan Hosting (Hostinger Business Web Hosting) (BR-14)
+        // 7. Pilar 7: Kompatibilitas Lingkungan Hosting (Hostinger Business Web Hosting) (SC-14)
+        // Tanpa server staging Hostinger yang diizinkan pemilik, status harus BLOCKED / NOT VERIFIED (Stage 5)
+        $hasAuthorizedStaging = config('features.hostinger_staging_verified', false);
+
         $pillar7 = [
             'key' => 'HOSTINGER_ENVIRONMENT_CHECK',
             'title' => 'Kompatibilitas Lingkungan Hosting (Hostinger Business Web Hosting)',
-            'status' => 'VERIFIED',
-            'passed' => true,
-            'document_ref' => 'Audit Dokumen docs/hostinger-compatibility-check.md',
-            'details' => 'PHP 8.3/8.4, MariaDB InnoDB, proteksi document root public/, isolasi file .env, dan mitigasi fallback trigger di aplikasi terkonfirmasi kompatibel.',
+            'status' => $hasAuthorizedStaging ? 'VERIFIED' : 'BLOCKED',
+            'passed' => $hasAuthorizedStaging,
+            'document_ref' => $hasAuthorizedStaging ? 'Hostinger Staging Sign-Off' : 'Menunggu Izin Akses & Uji Staging Hostinger',
+            'details' => $hasAuthorizedStaging
+                ? 'Verifikasi staging Hostinger: PHP 8.3 FPM, InnoDB, document root public_html, dan mitigasi tanpa hak CREATE TRIGGER berhasil.'
+                : 'Pengujian staging Hostinger belum diizinkan oleh pemilik yayasan. Hak CREATE TRIGGER, versi PHP, dan cron shared hosting belum diverifikasi secara live.',
         ];
 
         // 8. Pilar 8: Bebas dari Konflik Penomoran Kritis
+        $conflictRows = LegacyRegisterRow::whereHas('batch', fn ($q) => $q->where('organization_id', $org->id))
+            ->where('verification_status', 'CONFLICT')
+            ->count();
         $hasZeroCriticalConflict = ($conflictRows === 0);
 
         $pillar8 = [
@@ -143,13 +159,16 @@ class ReadinessService
             $blockingReasons[] = 'SK Standar Prosedur Operasional Penomoran Resmi belum disahkan oleh Dewan Pengurus Yayasan.';
         }
         if (! $pillar2['passed']) {
-            $blockingReasons[] = 'Rekonsiliasi register berkas persuratan fisik lama belum tuntas atau masih memuat anomali.';
+            $blockingReasons[] = 'Rekonsiliasi register berkas persuratan fisik asli belum tuntas (hanya tersedia data sampel pengujian).';
         }
         if (! $pillar3['passed']) {
             $blockingReasons[] = 'SK Pengesahan Mandat Pejabat Definitif (Reviewer & Signatory) belum ditetapkan.';
         }
         if (! $pillar4['passed']) {
             $blockingReasons[] = 'Kebijakan format Buku Agenda Surat Masuk & Keluar belum disahkan secara definitif.';
+        }
+        if (! $pillar7['passed']) {
+            $blockingReasons[] = 'Pengujian lingkungan hosting Hostinger produksi berstatus BLOCKED karena belum adanya server staging yang diizinkan.';
         }
         if (! $pillar8['passed']) {
             $blockingReasons[] = "Terdapat {$conflictRows} data nomor surat berkonflik yang membutuhkan penetapan berita acara pengurus.";

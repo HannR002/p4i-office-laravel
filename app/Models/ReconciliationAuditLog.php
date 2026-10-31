@@ -16,9 +16,13 @@ class ReconciliationAuditLog extends Model
     protected $fillable = [
         'row_id',
         'user_id',
+        'proposer_id',
+        'verifier_id',
         'previous_status',
         'new_status',
         'action_taken',
+        'board_resolution_ref',
+        'rationale',
         'notes',
     ];
 
@@ -30,5 +34,15 @@ class ReconciliationAuditLog extends Model
     public function actor(): BelongsTo
     {
         return $this->belongsTo(User::class, 'user_id');
+    }
+
+    public function proposer(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'proposer_id');
+    }
+
+    public function verifier(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'verifier_id');
     }
 }

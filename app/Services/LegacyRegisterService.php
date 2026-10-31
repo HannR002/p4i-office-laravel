@@ -12,7 +12,6 @@ use DomainException;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
-use SimpleXMLElement;
 use ZipArchive;
 
 class LegacyRegisterService
@@ -195,6 +194,7 @@ class LegacyRegisterService
                 'valid_rows' => $validRows,
                 'conflict_rows' => $conflictRows,
                 'status' => $batchStatus,
+                'is_sample' => false,
                 'imported_by' => $user->id,
                 'notes' => $notes,
             ]);
@@ -233,7 +233,8 @@ class LegacyRegisterService
     }
 
     /**
-     * Rekonsiliasi individual baris register lama oleh Tim Arsiparis / Reviewer resmi (BR-07, BR-08, BR-09).
+     * Rekonsiliasi individual baris register lama oleh Tim Arsiparis / Reviewer resmi (BR-07, BR-08, BR-09, SC-07, SC-08).
+     * Menerapkan prinsip Segregation of Duties (SoD) dan append-only audit trail.
      */
     public function reconcileRow(
         User $user,
@@ -248,9 +249,34 @@ class LegacyRegisterService
             throw new InvalidArgumentException("Status rekonsiliasi tidak valid: {$status}");
         }
 
-        $prevStatus = $row->verification_status;
+        $allowedActions = ['RETAIN_AS_IS', 'AMEND_OFFICIAL_RECORD', 'VOID_ENTRY', 'FLAGGED_FOR_BOARD'];
+        if (! in_array($action, $allowedActions, true)) {
+            throw new InvalidArgumentException("Tindakan rekonsiliasi tidak valid: {$action}");
+        }
 
-        return DB::transaction(function () use ($user, $row, $status, $action, $notes, $boardRef, $prevStatus) {
+        // Segregation of Duties 1: Larangan Self-Approval (SC-08)
+        // Pengusul perubahan dilarang mengesahkan/memverifikasi usulannya sendiri
+        if ($row->proposed_by && $row->proposed_by === $user->id && in_array($status, ['VERIFIED', 'CONFLICT'])) {
+            throw new DomainException('Prinsip Segregation of Duties: Pengusul perubahan register dilarang memverifikasi keputusannya sendiri.');
+        }
+
+        // Segregation of Duties 2: Pengunggah batch dilarang memverifikasi baris miliknya sendiri tanpa mandat pengurus
+        if ($row->batch && $row->batch->imported_by === $user->id && ! $user->hasRole('PENGURUS_YAYASAN') && ! $user->hasRole('REVIEWER')) {
+            throw new DomainException('Prinsip Segregation of Duties: Pengunggah berkas register dilarang memvalidasi baris arsip miliknya sendiri.');
+        }
+
+        // Segregation of Duties 3: Administrator teknis dilarang mengesahkan arsip resmi tanpa SK/Berita Acara Pengurus (SC-08)
+        if ($user->isSystemAdmin() && ! $user->hasRole('PENGURUS_YAYASAN')) {
+            if (in_array($action, ['RETAIN_AS_IS', 'AMEND_OFFICIAL_RECORD', 'VOID_ENTRY']) && empty($boardRef)) {
+                throw new DomainException('Administrator teknis tidak memiliki kewenangan yuridis menetapkan validitas arsip resmi tanpa Nomor SK/Berita Acara Dewan Pengurus.');
+            }
+        }
+
+        $prevStatus = $row->verification_status;
+        $proposerId = $row->proposed_by ?: $row->batch?->imported_by;
+
+        return DB::transaction(function () use ($user, $row, $status, $action, $notes, $boardRef, $prevStatus, $proposerId) {
+            // Append-only: raw_number, source_location, provenance asli tidak pernah ditimpa
             $row->verification_status = $status;
             $row->reconciliation_action = $action;
             $row->reconciliation_notes = $notes;
@@ -259,40 +285,51 @@ class LegacyRegisterService
             $row->verified_at = now();
             $row->save();
 
-            // Catat log rekonsiliasi immutable
+            // Catat log rekonsiliasi immutable dengan informasi lengkap pengusul dan pemeriksa (SC-07, SC-08)
             ReconciliationAuditLog::create([
                 'row_id' => $row->id,
                 'user_id' => $user->id,
+                'proposer_id' => $proposerId,
+                'verifier_id' => $user->id,
                 'previous_status' => $prevStatus,
                 'new_status' => $status,
                 'action_taken' => $action,
+                'board_resolution_ref' => $boardRef,
+                'rationale' => $notes,
                 'notes' => $notes,
             ]);
 
             // Sinkronkan status batch
             $batch = $row->batch;
-            $hasConflict = LegacyRegisterRow::where('batch_id', $batch->id)
-                ->where('verification_status', 'CONFLICT')
-                ->exists();
+            if ($batch) {
+                $hasConflict = LegacyRegisterRow::where('batch_id', $batch->id)
+                    ->where('verification_status', 'CONFLICT')
+                    ->exists();
 
-            $allVerified = ! LegacyRegisterRow::where('batch_id', $batch->id)
-                ->where('verification_status', '!=', 'VERIFIED')
-                ->exists();
+                $allVerified = ! LegacyRegisterRow::where('batch_id', $batch->id)
+                    ->where('verification_status', '!=', 'VERIFIED')
+                    ->exists();
 
-            $batch->status = $allVerified ? 'VERIFIED' : ($hasConflict ? 'HAS_CONFLICTS' : 'STAGED');
-            $batch->save();
+                $batch->status = $allVerified ? 'VERIFIED' : ($hasConflict ? 'HAS_CONFLICTS' : 'STAGED');
+                $batch->save();
+            }
 
             return $row;
         });
     }
 
     /**
-     * Memverifikasi batch oleh reviewer arsip resmi.
+     * Memverifikasi batch oleh reviewer arsip resmi dengan penegakan SoD (SC-08).
      */
     public function verifyBatch(User $user, LegacyRegisterBatch $batch, bool $approved, string $notes): void
     {
         if ($batch->organization_id !== $user->organization_id) {
             throw new DomainException('Batch register bukan milik organisasi pengguna.');
+        }
+
+        // Segregation of Duties: Pengunggah batch dilarang memverifikasi batch-nya sendiri tanpa mandat Pengurus
+        if ($batch->imported_by === $user->id && ! $user->hasRole('PENGURUS_YAYASAN')) {
+            throw new DomainException('Prinsip Segregation of Duties: Pengunggah batch register dilarang memverifikasi batch miliknya sendiri.');
         }
 
         DB::transaction(function () use ($user, $batch, $approved, $notes) {
@@ -324,7 +361,7 @@ class LegacyRegisterService
     }
 
     /**
-     * Pembaca berkas CSV secara aman.
+     * Pembaca berkas CSV secara aman dengan batas baris, kolom, dan panjang karakter (SC-04, SC-06).
      */
     private function parseCsv(string $path): array
     {
@@ -334,7 +371,27 @@ class LegacyRegisterService
         }
 
         $rows = [];
+        $rowCount = 0;
+
         while (($data = fgetcsv($handle, 4096, ',')) !== false) {
+            $rowCount++;
+            if ($rowCount > 5000) {
+                fclose($handle);
+                throw new InvalidArgumentException('Jumlah baris dalam berkas melebihi batas maksimum 5.000 baris.');
+            }
+
+            if (count($data) > 50) {
+                fclose($handle);
+                throw new InvalidArgumentException('Jumlah kolom dalam berkas melebihi batas maksimum 50 kolom.');
+            }
+
+            foreach ($data as $cell) {
+                if (strlen((string) $cell) > 1000) {
+                    fclose($handle);
+                    throw new InvalidArgumentException('Panjang teks dalam sel melebihi batas maksimum 1.000 karakter.');
+                }
+            }
+
             $rows[] = $data;
         }
         fclose($handle);
@@ -343,8 +400,8 @@ class LegacyRegisterService
     }
 
     /**
-     * Parser XLSX asli dan aman menggunakan ZipArchive & SimpleXMLElement (BR-02).
-     * Tidak mengevaluasi formula, macro, atau kode eksternal.
+     * Parser XLSX native yang diperkuat secara komprehensif (CR-01, SC-02, SC-03, SC-04, SC-05).
+     * Mencegah entity expansion (tanpa LIBXML_NOENT), DTD/XXE, ZIP Bomb, Path Traversal, Macro, dan External Links.
      */
     private function parseXlsx(string $path): array
     {
@@ -353,57 +410,176 @@ class LegacyRegisterService
             throw new InvalidArgumentException('Berkas XLSX rusak atau tidak memiliki struktur zip yang valid.');
         }
 
-        // Keamanan: Tolak jika memuat berkas macro VBA
-        if ($zip->locateName('xl/vbaProject.bin') !== false) {
+        // 1. Batasi jumlah total entri dalam arsip ZIP (SC-04)
+        $numFiles = $zip->numFiles;
+        if ($numFiles > 100) {
             $zip->close();
-            throw new InvalidArgumentException('Berkas XLSX memuat komponen Macro/VBA yang dilarang oleh kebijakan keamanan sistem.');
+            throw new InvalidArgumentException('Jumlah berkas internal ZIP melebihi batas keamanan maksimum (100 berkas).');
         }
 
-        // 1. Ekstrak shared strings jika ada
+        // 2. Audit path traversal, ZIP bomb, ukuran dekompresi, dan berkas terlarang (SC-03, SC-04, SC-05)
+        $totalUncompressedSize = 0;
+        for ($i = 0; $i < $numFiles; $i++) {
+            $stat = $zip->statIndex($i);
+            if (! $stat) {
+                continue;
+            }
+
+            $name = $stat['name'];
+
+            // 2.1 Audit Path Traversal (SC-04)
+            if (str_contains($name, '..') || str_starts_with($name, '/') || str_starts_with($name, '\\') || str_contains($name, ':')) {
+                $zip->close();
+                throw new InvalidArgumentException("Nama entri berkas terindikasi path traversal terlarang: {$name}");
+            }
+
+            // 2.2 Penolakan Macro, Script, dan Komponen Terlarang (SC-05)
+            $lowerName = strtolower($name);
+            if (
+                str_ends_with($lowerName, '.bin') ||
+                str_ends_with($lowerName, '.exe') ||
+                str_ends_with($lowerName, '.vbs') ||
+                str_ends_with($lowerName, '.bat') ||
+                str_ends_with($lowerName, '.cmd') ||
+                str_ends_with($lowerName, '.sh') ||
+                str_contains($lowerName, 'vbaproject') ||
+                str_contains($lowerName, 'customxml')
+            ) {
+                $zip->close();
+                throw new InvalidArgumentException('Berkas XLSX memuat komponen terlarang (Macro/VBA/Script).');
+            }
+
+            // 2.3 Penolakan Pranala Eksternal (External Links / Relationships) (SC-05)
+            if (str_contains($lowerName, 'externallink')) {
+                $zip->close();
+                throw new InvalidArgumentException('Berkas XLSX memuat pranala luar (external links) yang dilarang.');
+            }
+
+            // 2.4 Batas Ukuran Dekompresi per Berkas (Maksimal 5 MB) (SC-04)
+            $size = $stat['size'];
+            if ($size > 5 * 1024 * 1024) {
+                $zip->close();
+                throw new InvalidArgumentException("Ukuran dekompresi berkas {$name} melebihi batas keamanan 5 MB.");
+            }
+
+            // 2.5 Deteksi Rasio Kompresi Ekstrem / ZIP Bomb (SC-04)
+            $compSize = $stat['comp_size'];
+            if ($compSize > 0 && ($size / $compSize) > 100 && $size > 1024 * 1024) {
+                $zip->close();
+                throw new InvalidArgumentException('Rasio kompresi berkas tidak wajar (terindikasi serangan ZIP Bomb).');
+            }
+
+            $totalUncompressedSize += $size;
+        }
+
+        // 2.6 Batas Kumulatif Dekompresi Seluruh Entri (Maksimal 10 MB) (SC-04)
+        if ($totalUncompressedSize > 10 * 1024 * 1024) {
+            $zip->close();
+            throw new InvalidArgumentException('Total ukuran hasil ekstraksi melebihi batas keamanan kumulatif 10 MB (ZIP Bomb protection).');
+        }
+
+        // 3. Ekstraksi Shared Strings dengan Proteksi DTD & XXE (SC-02, SC-03)
         $sharedStrings = [];
         $stringsXml = $zip->getFromName('xl/sharedStrings.xml');
         if ($stringsXml !== false) {
-            $xml = @simplexml_load_string($stringsXml, 'SimpleXMLElement', LIBXML_NONET | LIBXML_NOENT);
-            if ($xml) {
-                foreach ($xml->si as $si) {
-                    if (isset($si->t)) {
-                        $sharedStrings[] = (string) $si->t;
-                    } elseif (isset($si->r)) {
-                        $tPart = '';
-                        foreach ($si->r as $rPart) {
-                            $tPart .= (string) $rPart->t;
-                        }
-                        $sharedStrings[] = $tPart;
-                    } else {
-                        $sharedStrings[] = '';
-                    }
-                }
-            }
+            $sharedStrings = $this->parseSharedStringsXml($stringsXml);
         }
 
-        // 2. Ekstrak lembar kerja utama (sheet1.xml)
+        // 4. Ekstraksi Lembar Kerja Utama (sheet1.xml)
         $sheetXml = $zip->getFromName('xl/worksheets/sheet1.xml');
+        $zip->close();
+
         if ($sheetXml === false) {
-            $zip->close();
             throw new InvalidArgumentException('Lembar kerja utama (sheet1.xml) tidak ditemukan dalam berkas XLSX.');
         }
 
-        $xml = @simplexml_load_string($sheetXml, 'SimpleXMLElement', LIBXML_NONET | LIBXML_NOENT);
-        $zip->close();
+        return $this->parseWorksheetXml($sheetXml, $sharedStrings);
+    }
 
-        if (! $xml || ! isset($xml->sheetData)) {
-            throw new InvalidArgumentException('Struktur XML lembar kerja tidak valid.');
+    /**
+     * Memparsing XML Shared Strings dengan validasi ketat anti DTD/XXE/Entity Substitution (CR-01, SC-02, SC-03).
+     */
+    private function parseSharedStringsXml(string $xmlContent): array
+    {
+        $this->assertSafeXmlContent($xmlContent);
+
+        libxml_use_internal_errors(true);
+        // HANYA LIBXML_NONET (tanpa LIBXML_NOENT, tanpa DTDLOAD, tanpa DTDVALID)
+        $xml = @simplexml_load_string($xmlContent, 'SimpleXMLElement', LIBXML_NONET);
+        $errors = libxml_get_errors();
+        libxml_clear_errors();
+
+        if ($xml === false || ! empty($errors)) {
+            throw new InvalidArgumentException('Format XML shared strings tidak valid atau rusak.');
+        }
+
+        $sharedStrings = [];
+        foreach ($xml->si as $si) {
+            if (isset($si->t)) {
+                $text = (string) $si->t;
+            } elseif (isset($si->r)) {
+                $text = '';
+                foreach ($si->r as $rPart) {
+                    $text .= (string) $rPart->t;
+                }
+            } else {
+                $text = '';
+            }
+
+            // Batasi panjang karakter teks per sel (maksimal 1.000 karakter)
+            if (strlen($text) > 1000) {
+                throw new InvalidArgumentException('Panjang teks dalam sel melebihi batas maksimum 1.000 karakter.');
+            }
+
+            $sharedStrings[] = $text;
+        }
+
+        return $sharedStrings;
+    }
+
+    /**
+     * Memparsing XML Worksheet dengan batas baris, kolom, dan panjang sel (SC-04, SC-05).
+     */
+    private function parseWorksheetXml(string $xmlContent, array $sharedStrings): array
+    {
+        $this->assertSafeXmlContent($xmlContent);
+
+        libxml_use_internal_errors(true);
+        // HANYA LIBXML_NONET (tanpa LIBXML_NOENT)
+        $xml = @simplexml_load_string($xmlContent, 'SimpleXMLElement', LIBXML_NONET);
+        $errors = libxml_get_errors();
+        libxml_clear_errors();
+
+        if ($xml === false || ! empty($errors) || ! isset($xml->sheetData)) {
+            throw new InvalidArgumentException('Format XML lembar kerja tidak valid atau rusak.');
         }
 
         $rows = [];
+        $rowCount = 0;
+
         foreach ($xml->sheetData->row as $rowNode) {
+            $rowCount++;
+            // Batas maksimal baris (maksimal 5.000 baris) (SC-04)
+            if ($rowCount > 5000) {
+                throw new InvalidArgumentException('Jumlah baris dalam berkas melebihi batas maksimum 5.000 baris.');
+            }
+
             $rowCells = [];
+            $colCount = 0;
+
             foreach ($rowNode->c as $cell) {
+                $colCount++;
+                // Batas maksimal kolom (maksimal 50 kolom) (SC-04)
+                if ($colCount > 50) {
+                    throw new InvalidArgumentException('Jumlah kolom dalam lembar kerja melebihi batas maksimum 50 kolom.');
+                }
+
                 $cellRef = (string) $cell['r'];
                 $colLetters = preg_replace('/[0-9]/', '', $cellRef);
                 $colIndex = $this->columnLetterToIndex($colLetters);
 
                 $cellType = (string) $cell['t'];
+                // Abaikan elemen formula <f> sama sekali demi keamanan! Hanya ambil <v> atau inline text
                 $val = isset($cell->v) ? (string) $cell->v : '';
 
                 if ($cellType === 's') {
@@ -415,11 +591,20 @@ class LegacyRegisterService
                     $cellValue = $val;
                 }
 
+                // Batas panjang karakter sel (maksimal 1.000 karakter)
+                if (strlen($cellValue) > 1000) {
+                    throw new InvalidArgumentException('Panjang teks dalam sel melebihi batas maksimum 1.000 karakter.');
+                }
+
                 $rowCells[$colIndex] = $cellValue;
             }
 
             if (! empty($rowCells)) {
                 $maxCol = max(array_keys($rowCells));
+                if ($maxCol > 50) {
+                    throw new InvalidArgumentException('Rentang kolom melebihi batas maksimum 50 kolom.');
+                }
+
                 $fullRow = [];
                 for ($c = 0; $c <= $maxCol; $c++) {
                     $fullRow[$c] = $rowCells[$c] ?? '';
@@ -429,6 +614,27 @@ class LegacyRegisterService
         }
 
         return $rows;
+    }
+
+    /**
+     * Memeriksa dan memastikan string XML aman dari DTD, XXE, Entity Substitution, dan pranala eksternal (CR-01, SC-02, SC-03).
+     */
+    private function assertSafeXmlContent(string $xmlContent): void
+    {
+        // 1. Tolak Deklarasi DTD (<!DOCTYPE) dan Deklarasi Entitas (<!ENTITY)
+        if (preg_match('/<!DOCTYPE/i', $xmlContent) || preg_match('/<!ENTITY/i', $xmlContent)) {
+            throw new InvalidArgumentException('Dokumen XML memuat DTD atau deklarasi entitas yang dilarang demi keamanan (XXE Protection).');
+        }
+
+        // 2. Tolak Entitas Eksternal (SYSTEM / PUBLIC)
+        if (preg_match('/\b(SYSTEM|PUBLIC)\b/i', $xmlContent)) {
+            throw new InvalidArgumentException('Dokumen XML memuat referensi entitas eksternal yang dilarang (XXE Protection).');
+        }
+
+        // 3. Tolak Relasi Eksternal (TargetMode="External" atau protokol eksternal dalam XML)
+        if (preg_match('/TargetMode\s*=\s*["\']External["\']/i', $xmlContent)) {
+            throw new InvalidArgumentException('Dokumen XML memuat tautan luar (external link) yang dilarang.');
+        }
     }
 
     /**

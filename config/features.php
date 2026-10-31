@@ -11,4 +11,15 @@ return [
     |
     */
     'official_numbering_active' => env('FEATURE_NUMBERING_ACTIVE', false),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Hostinger Staging Verification Flag (SC-14)
+    |--------------------------------------------------------------------------
+    |
+    | Verifikasi kesiapan live di server Hostinger terkunci (false) sampai
+    | adanya izin akses dan pengujian langsung pada server staging resmi.
+    |
+    */
+    'hostinger_staging_verified' => env('HOSTINGER_STAGING_VERIFIED', false),
 ];
