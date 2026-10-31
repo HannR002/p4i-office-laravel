@@ -6,6 +6,7 @@ use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\LetterController;
 use App\Http\Controllers\MandateController;
 use App\Http\Controllers\TemplateController;
+use App\Models\User;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -64,7 +65,7 @@ Route::middleware(['auth', 'active.user'])->group(function () {
 // Rute Helper Khusus Lingkungan Lokal Pengujian Browser (Dev Only)
 if (app()->environment('local')) {
     Route::get('/dev-login/{email}', function (string $email) {
-        $user = \App\Models\User::where('email', $email)->firstOrFail();
+        $user = User::where('email', $email)->firstOrFail();
         Auth::login($user);
 
         return redirect(request('redirect', '/dashboard'));
