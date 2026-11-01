@@ -17,6 +17,7 @@ use DomainException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Symfony\Component\Process\Process;
 use Tests\TestCase;
 
 class ArchiveTransactionConcurrencyTest extends TestCase
@@ -392,5 +393,95 @@ class ArchiveTransactionConcurrencyTest extends TestCase
             '--stale-minutes' => 15,
             '--org' => $this->org->id,
         ])->assertExitCode(0);
+    }
+
+    /**
+     * M5B-A (Section 3.C): Membedakan exception biasa (in-process try..catch) dengan penghentian proses PHP
+     * mendadak (subproses pekerja mati mendadak dengan exit(137) sebelum blok catch/cleanup dapat berjalan),
+     * serta memverifikasi pendaftaran scheduler Laravel 13 (schedule:list).
+     */
+    public function test_m5b_a_real_php_subprocess_abrupt_termination_and_schedule_reconciliation(): void
+    {
+        $letter = $this->createTestLetter();
+        $revision = $letter->latestRevision;
+        $disk = Storage::disk('private_archives');
+        $year = Carbon::now()->format('Y');
+
+        // 1. Verifikasi pendaftaran scheduler di Laravel 13 (routes/console.php)
+        $this->artisan('schedule:list')
+            ->expectsOutputToContain('p4i:reconcile-exports --stale-minutes=15')
+            ->assertExitCode(0);
+
+        // 2. Jalankan subproses PHP CLI terpisah yang menyimulasikan worker mati mendadak (exit 137 / SIGKILL)
+        // di tengah penulisan berkas tanpa pernah mengeksekusi blok catch (\Throwable)
+        $crashTempFile = sys_get_temp_dir().DIRECTORY_SEPARATOR.'p4i_export_subproc_'.uniqid().'.pdf';
+
+        $workerCode = sprintf(
+            'require %s; $app = require_once %s; $kernel = $app->make(Illuminate\Contracts\Console\Kernel::class); $kernel->bootstrap(); '.
+            'config(["database.connections.mysql.database" => %s]); Illuminate\Support\Facades\DB::purge("mysql"); '.
+            '$exp = App\Models\DocumentExport::create(["organization_id" => %s, "letter_id" => %s, "revision_id" => %s, "revision_version" => 1, "content_hash" => %s, "format" => "PDF", "file_hash" => %s, "status" => "PENDING", "idempotency_key" => "subproc_crash_137", "exported_by" => %s]); '.
+            '$rel = %s . "/" . %s . "/PDF/" . $exp->id . ".pdf"; '.
+            '$exp->update(["file_path" => $rel]); '.
+            '$abs = Illuminate\Support\Facades\Storage::disk("private_archives")->path($rel); '.
+            'file_put_contents(%s, "TEMP_CRASH_BYTES"); '.
+            'if (!is_dir(dirname($abs))) { mkdir(dirname($abs), 0775, true); } '.
+            'file_put_contents($abs, "%%PDF-1.4 TRUNCATED BY ABRUPT WORKER KILL"); '.
+            'exit(137);',
+            var_export(base_path('vendor/autoload.php'), true),
+            var_export(base_path('bootstrap/app.php'), true),
+            var_export(config('database.connections.mysql.database'), true),
+            var_export($this->org->id, true),
+            var_export($letter->id, true),
+            var_export($revision->id, true),
+            var_export(hash('sha256', json_encode($revision->content)), true),
+            var_export(str_repeat('f', 64), true),
+            var_export($this->author->id, true),
+            var_export($this->org->id, true),
+            var_export($year, true),
+            var_export($crashTempFile, true)
+        );
+
+        $process = new Process([PHP_BINARY, '-r', $workerCode], base_path());
+        $process->run();
+        $exitCode = $process->getExitCode();
+
+        // Subproses benar-benar berhenti mendadak dengan kode 137 (melewati try...catch)
+        $this->assertEquals(137, $exitCode, 'Subprocess stderr: '.$process->getErrorOutput());
+
+        // Buktikan bahwa sesaat setelah proses PHP mati mendadak, status di DB masih tertinggal PENDING
+        // dan berkas parsial masih tertinggal di disk (berbeda dengan exception biasa yang langsung ditangkap catch)
+        $stuckExport = DocumentExport::where('idempotency_key', 'subproc_crash_137')->first();
+        $this->assertNotNull($stuckExport);
+        $crashExportId = $stuckExport->id;
+        $crashRelPath = $stuckExport->file_path;
+        $this->assertEquals('PENDING', $stuckExport->status);
+        $this->assertTrue($disk->exists($crashRelPath));
+        $this->assertTrue(file_exists($crashTempFile));
+
+        // Simulasikan waktu telah berlalu melewati ambang stale (20 menit)
+        DB::table('document_exports')->where('id', $crashExportId)->update([
+            'created_at' => now()->subMinutes(20),
+            'updated_at' => now()->subMinutes(20),
+        ]);
+        touch($crashTempFile, now()->subMinutes(20)->getTimestamp());
+
+        // 3. Eksekusi perintah rekonsiliasi terjadwal
+        $this->artisan('p4i:reconcile-exports', [
+            '--stale-minutes' => 15,
+            '--org' => $this->org->id,
+        ])->assertExitCode(0);
+
+        // Verifikasi bahwa rekonsiliasi membersihkan berkas parsial & temp, mengubah status ke ERROR, dan mencatat AuditEvent
+        $reconciledExport = DocumentExport::find($crashExportId);
+        $this->assertEquals('ERROR', $reconciledExport->status);
+        $this->assertFalse($disk->exists($crashRelPath), 'Berkas parsial hasil subproses yang mati mendadak harus dihapus.');
+        $this->assertFalse(file_exists($crashTempFile), 'Berkas temp yatim hasil subproses yang mati mendadak harus dihapus.');
+
+        $this->assertDatabaseHas('audit_events', [
+            'organization_id' => $this->org->id,
+            'event_type' => 'DOCUMENT_EXPORT_RECONCILED_ERROR',
+            'entity_type' => 'document_exports',
+            'entity_id' => $crashExportId,
+        ]);
     }
 }

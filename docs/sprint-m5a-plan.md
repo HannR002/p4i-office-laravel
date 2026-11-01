@@ -6,7 +6,7 @@
 **Branch:** `feat/sprint-m5a-staging-readiness`  
 **Workspace:** `D:\p4i-office-laravel` (Sinkronisasi Dokumentasi: `D:\p4i-office`)  
 **Tim Perancangan, Software Architect, Auditor & Penyusun Laporan Resmi:** GPT-6  
-**Implementer & Technical Test Engineer:** Gemini (Lead Software Engineer)  
+**Implementer & Technical Test Engineer:** Argon — Reasoning Medium (Lead Software Engineer)  
 **Otoritas Administratif:** Ketua dan Dewan Pengurus Yayasan P4I  
 **Tanggal:** 01 November 2026  
 
@@ -15,7 +15,7 @@
 ## 1. TATA KELOLA DAN BATAS KEWENANGAN
 
 - **GPT-6:** Bertanggung jawab atas perancangan sistem, SRS (`P4I_Office_Addendum_SRS_Sprint_M5A_2026-11-01.docx`), arsitektur, audit independen, keputusan penerimaan teknis, dan penyusunan laporan resmi.
-- **Gemini IDE:** Bertanggung jawab atas implementasi kode, pengujian otomatis, perbaikan temuan audit, dokumentasi teknis, dan penyediaan bukti empiris yang dapat direproduksi.
+- **Argon — Reasoning Medium (Lead Software Engineer & Technical Test Engineer):** Bertanggung jawab atas implementasi kode, pengujian otomatis, perbaikan temuan audit, dokumentasi teknis, dan penyediaan bukti empiris yang dapat direproduksi.
 - **Ketua dan Pengurus Yayasan P4I:** Menentukan kebijakan organisasi, pengesahan SOP penomoran, SK Mandat pejabat, persetujuan lingkungan staging Hostinger, dan izin operasional produksi.
 - **Prinsip Kepatuhan:** Tidak mengklaim sistem siap produksi atau telah disahkan yayasan hanya berdasarkan kelulusan pengujian otomatis lokal. Tidak mengakses atau mengubah Hostinger tanpa izin eksplisit tertulis dari pemilik proyek.
 

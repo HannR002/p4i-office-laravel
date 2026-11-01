@@ -11,6 +11,7 @@ use Carbon\Carbon;
 use DomainException;
 use Dompdf\Dompdf;
 use Dompdf\Options;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
@@ -96,9 +97,19 @@ class DocumentExportService
             $fileHash = hash_file('sha256', $tempPath);
             $fileSize = filesize($tempPath);
 
-            // 9. Jalur Penyimpanan Privat Terisolasi (M4A-07)
+            // 9. Jalur Penyimpanan Privat Terisolasi & Pre-Commit Metadata (M4A-07, STG-05)
+            // Mencatat file_path dan file_hash ke record PENDING sebelum menyalin ke storage privat,
+            // sehingga jika proses PHP mati mendadak (SIGKILL/OOM) tepat setelah menulis berkas utuh ke storage,
+            // reconcileInterruptedExports() memiliki acuan file_hash SHA-256 untuk memverifikasi dan memulihkannya.
             $year = Carbon::now()->format('Y');
             $storageRelativePath = "{$letter->organization_id}/{$year}/{$format}/{$export->id}.".strtolower($format);
+
+            $export->update([
+                'file_path' => $storageRelativePath,
+                'file_hash' => $fileHash,
+                'file_size' => $fileSize,
+                'mime_type' => $mimeType,
+            ]);
 
             // Simpan ke private disk
             $fileContents = file_get_contents($tempPath);
@@ -107,58 +118,70 @@ class DocumentExportService
             // Hapus berkas sementara
             @unlink($tempPath);
 
-            // 10. Perbarui Status Menjadi READY Secara Atomik
-            $export->update([
-                'file_path' => $storageRelativePath,
-                'file_hash' => $fileHash,
-                'file_size' => $fileSize,
-                'mime_type' => $mimeType,
-                'status' => 'READY',
-                'error_message' => null,
-            ]);
+            // 10. Perbarui Status Menjadi READY & Catat Log Audit Secara Atomik (DB Transaction + Row Lock)
+            DB::transaction(function () use ($export, $letter, $user, $revision, $format, $storageRelativePath, $fileHash, $fileSize, $mimeType) {
+                $locked = DocumentExport::where('id', $export->id)->lockForUpdate()->first();
+                if ($locked) {
+                    $locked->update([
+                        'file_path' => $storageRelativePath,
+                        'file_hash' => $fileHash,
+                        'file_size' => $fileSize,
+                        'mime_type' => $mimeType,
+                        'status' => 'READY',
+                        'error_message' => null,
+                    ]);
+                }
 
-            // Catat Log Audit Ekspor Dokumen
-            AuditEvent::create([
-                'organization_id' => $letter->organization_id,
-                'actor_id' => $user->id,
-                'event_type' => 'DOCUMENT_EXPORTED',
-                'entity_type' => 'document_exports',
-                'entity_id' => $export->id,
-                'event_metadata' => [
-                    'letter_id' => $letter->id,
-                    'revision_version' => $revision->version,
-                    'format' => $format,
-                    'sha256' => $fileHash,
-                    'file_size' => $fileSize,
-                ],
-                'occurred_at' => now(),
-            ]);
+                AuditEvent::create([
+                    'organization_id' => $letter->organization_id,
+                    'actor_id' => $user->id,
+                    'event_type' => 'DOCUMENT_EXPORTED',
+                    'entity_type' => 'document_exports',
+                    'entity_id' => $export->id,
+                    'event_metadata' => [
+                        'letter_id' => $letter->id,
+                        'revision_version' => $revision->version,
+                        'format' => $format,
+                        'sha256' => $fileHash,
+                        'file_size' => $fileSize,
+                    ],
+                    'occurred_at' => now(),
+                ]);
+            });
 
-            return $export;
+            return $export->fresh();
         } catch (\Throwable $e) {
-            // Pembersihan berkas jika terjadi kegagalan (Pencegahan Berkas Yatim - M4A-13)
+            // Pembersihan berkas jika terjadi kegagalan exception normal (Pencegahan Berkas Yatim - M4A-13)
             if (file_exists($tempPath)) {
                 @unlink($tempPath);
             }
+            if (! empty($export->file_path) && Storage::disk(self::DISK)->exists($export->file_path)) {
+                Storage::disk(self::DISK)->delete($export->file_path);
+            }
 
-            $export->update([
-                'status' => 'ERROR',
-                'error_message' => $e->getMessage(),
-            ]);
+            DB::transaction(function () use ($export, $letter, $user, $format, $e) {
+                $locked = DocumentExport::where('id', $export->id)->lockForUpdate()->first();
+                if ($locked) {
+                    $locked->update([
+                        'status' => 'ERROR',
+                        'error_message' => $e->getMessage(),
+                    ]);
+                }
 
-            AuditEvent::create([
-                'organization_id' => $letter->organization_id,
-                'actor_id' => $user->id,
-                'event_type' => 'DOCUMENT_EXPORT_FAILED',
-                'entity_type' => 'document_exports',
-                'entity_id' => $export->id,
-                'event_metadata' => [
-                    'letter_id' => $letter->id,
-                    'format' => $format,
-                    'error' => $e->getMessage(),
-                ],
-                'occurred_at' => now(),
-            ]);
+                AuditEvent::create([
+                    'organization_id' => $letter->organization_id,
+                    'actor_id' => $user->id,
+                    'event_type' => 'DOCUMENT_EXPORT_FAILED',
+                    'entity_type' => 'document_exports',
+                    'entity_id' => $export->id,
+                    'event_metadata' => [
+                        'letter_id' => $letter->id,
+                        'format' => $format,
+                        'error' => $e->getMessage(),
+                    ],
+                    'occurred_at' => now(),
+                ]);
+            });
 
             throw $e;
         }
@@ -798,76 +821,90 @@ HTML;
 
         $staleExports = $staleQuery->get();
         foreach ($staleExports as $exp) {
-            $year = Carbon::parse($exp->created_at ?: now())->format('Y');
-            $ext = strtolower($exp->format);
-            $expectedRelPath = $exp->file_path ?: "{$exp->organization_id}/{$year}/{$exp->format}/{$exp->id}.{$ext}";
+            DB::transaction(function () use (
+                $exp,
+                $disk,
+                $actorId,
+                &$recoveredPending,
+                &$failedStalePending,
+                &$orphanStorageFilesRemoved
+            ) {
+                $locked = DocumentExport::where('id', $exp->id)->lockForUpdate()->first();
+                if (! $locked || $locked->status !== 'PENDING') {
+                    return;
+                }
 
-            $canRecover = false;
-            if ($disk->exists($expectedRelPath)) {
-                $absPath = $disk->path($expectedRelPath);
-                $actualSize = @filesize($absPath) ?: 0;
-                if ($actualSize > 0 && $this->isValidExportBinary($absPath, $exp->format)) {
-                    $actualHash = hash_file('sha256', $absPath);
-                    if (! empty($exp->file_hash) && hash_equals($exp->file_hash, $actualHash)) {
-                        $canRecover = true;
-                        $mimeType = $exp->format === 'PDF'
-                            ? 'application/pdf'
-                            : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+                $year = Carbon::parse($locked->created_at ?: now())->format('Y');
+                $ext = strtolower($locked->format);
+                $expectedRelPath = $locked->file_path ?: "{$locked->organization_id}/{$year}/{$locked->format}/{$locked->id}.{$ext}";
 
-                        $exp->update([
-                            'file_path' => $expectedRelPath,
-                            'file_size' => $actualSize,
-                            'mime_type' => $mimeType,
-                            'status' => 'READY',
-                            'error_message' => null,
-                        ]);
-                        $recoveredPending++;
+                $canRecover = false;
+                if ($disk->exists($expectedRelPath)) {
+                    $absPath = $disk->path($expectedRelPath);
+                    $actualSize = @filesize($absPath) ?: 0;
+                    if ($actualSize > 0 && $this->isValidExportBinary($absPath, $locked->format)) {
+                        $actualHash = hash_file('sha256', $absPath);
+                        if (! empty($locked->file_hash) && hash_equals($locked->file_hash, $actualHash)) {
+                            $canRecover = true;
+                            $mimeType = $locked->format === 'PDF'
+                                ? 'application/pdf'
+                                : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 
-                        AuditEvent::create([
-                            'organization_id' => $exp->organization_id,
-                            'actor_id' => $actorId ?: $exp->exported_by,
-                            'event_type' => 'DOCUMENT_EXPORT_RECOVERED',
-                            'entity_type' => 'document_exports',
-                            'entity_id' => $exp->id,
-                            'event_metadata' => [
-                                'letter_id' => $exp->letter_id,
-                                'format' => $exp->format,
-                                'sha256' => $actualHash,
+                            $locked->update([
+                                'file_path' => $expectedRelPath,
                                 'file_size' => $actualSize,
-                            ],
-                            'occurred_at' => now(),
-                        ]);
+                                'mime_type' => $mimeType,
+                                'status' => 'READY',
+                                'error_message' => null,
+                            ]);
+                            $recoveredPending++;
+
+                            AuditEvent::create([
+                                'organization_id' => $locked->organization_id,
+                                'actor_id' => $actorId ?: $locked->exported_by,
+                                'event_type' => 'DOCUMENT_EXPORT_RECOVERED',
+                                'entity_type' => 'document_exports',
+                                'entity_id' => $locked->id,
+                                'event_metadata' => [
+                                    'letter_id' => $locked->letter_id,
+                                    'format' => $locked->format,
+                                    'sha256' => $actualHash,
+                                    'file_size' => $actualSize,
+                                ],
+                                'occurred_at' => now(),
+                            ]);
+                        }
                     }
                 }
-            }
 
-            if (! $canRecover) {
-                // Hapus berkas parsial/yatim jika sempat tertulis sebagian
-                if ($disk->exists($expectedRelPath)) {
-                    $disk->delete($expectedRelPath);
-                    $orphanStorageFilesRemoved++;
+                if (! $canRecover) {
+                    // Hapus berkas parsial/yatim jika sempat tertulis sebagian
+                    if ($disk->exists($expectedRelPath)) {
+                        $disk->delete($expectedRelPath);
+                        $orphanStorageFilesRemoved++;
+                    }
+
+                    $locked->update([
+                        'status' => 'ERROR',
+                        'error_message' => 'Rekonsiliasi crash recovery: Proses ekspor terputus mendadak sebelum selesai.',
+                    ]);
+                    $failedStalePending++;
+
+                    AuditEvent::create([
+                        'organization_id' => $locked->organization_id,
+                        'actor_id' => $actorId ?: $locked->exported_by,
+                        'event_type' => 'DOCUMENT_EXPORT_RECONCILED_ERROR',
+                        'entity_type' => 'document_exports',
+                        'entity_id' => $locked->id,
+                        'event_metadata' => [
+                            'letter_id' => $locked->letter_id,
+                            'format' => $locked->format,
+                            'reason' => 'STALE_PENDING_INTERRUPTED',
+                        ],
+                        'occurred_at' => now(),
+                    ]);
                 }
-
-                $exp->update([
-                    'status' => 'ERROR',
-                    'error_message' => 'Rekonsiliasi crash recovery: Proses ekspor terputus mendadak sebelum selesai.',
-                ]);
-                $failedStalePending++;
-
-                AuditEvent::create([
-                    'organization_id' => $exp->organization_id,
-                    'actor_id' => $actorId ?: $exp->exported_by,
-                    'event_type' => 'DOCUMENT_EXPORT_RECONCILED_ERROR',
-                    'entity_type' => 'document_exports',
-                    'entity_id' => $exp->id,
-                    'event_metadata' => [
-                        'letter_id' => $exp->letter_id,
-                        'format' => $exp->format,
-                        'reason' => 'STALE_PENDING_INTERRUPTED',
-                    ],
-                    'occurred_at' => now(),
-                ]);
-            }
+            });
         }
 
         // 3. Pastikan tidak ada metadata READY yang menunjuk ke berkas hilang atau korup
@@ -878,53 +915,60 @@ HTML;
 
         $readyExports = $readyQuery->get();
         foreach ($readyExports as $readyExp) {
-            if (empty($readyExp->file_path) || ! $disk->exists($readyExp->file_path)) {
-                $readyExp->update([
-                    'status' => 'ERROR',
-                    'error_message' => 'Rekonsiliasi: Berkas fisik arsip hilang dari penyimpanan privat.',
-                ]);
-                $brokenReadyMarkedError++;
+            DB::transaction(function () use ($readyExp, $disk, $actorId, &$brokenReadyMarkedError) {
+                $lockedReady = DocumentExport::where('id', $readyExp->id)->lockForUpdate()->first();
+                if (! $lockedReady || $lockedReady->status !== 'READY') {
+                    return;
+                }
 
-                AuditEvent::create([
-                    'organization_id' => $readyExp->organization_id,
-                    'actor_id' => $actorId ?: $readyExp->exported_by,
-                    'event_type' => 'DOCUMENT_EXPORT_BROKEN_READY',
-                    'entity_type' => 'document_exports',
-                    'entity_id' => $readyExp->id,
-                    'event_metadata' => [
-                        'letter_id' => $readyExp->letter_id,
-                        'reason' => 'MISSING_PHYSICAL_FILE',
-                    ],
-                    'occurred_at' => now(),
-                ]);
+                if (empty($lockedReady->file_path) || ! $disk->exists($lockedReady->file_path)) {
+                    $lockedReady->update([
+                        'status' => 'ERROR',
+                        'error_message' => 'Rekonsiliasi: Berkas fisik arsip hilang dari penyimpanan privat.',
+                    ]);
+                    $brokenReadyMarkedError++;
 
-                continue;
-            }
+                    AuditEvent::create([
+                        'organization_id' => $lockedReady->organization_id,
+                        'actor_id' => $actorId ?: $lockedReady->exported_by,
+                        'event_type' => 'DOCUMENT_EXPORT_BROKEN_READY',
+                        'entity_type' => 'document_exports',
+                        'entity_id' => $lockedReady->id,
+                        'event_metadata' => [
+                            'letter_id' => $lockedReady->letter_id,
+                            'reason' => 'MISSING_PHYSICAL_FILE',
+                        ],
+                        'occurred_at' => now(),
+                    ]);
 
-            $absPath = $disk->path($readyExp->file_path);
-            $actualHash = hash_file('sha256', $absPath);
-            if ($actualHash !== $readyExp->file_hash) {
-                $readyExp->update([
-                    'status' => 'ERROR',
-                    'error_message' => 'Rekonsiliasi: Checksum SHA-256 berkas fisik tidak cocok dengan metadata.',
-                ]);
-                $brokenReadyMarkedError++;
+                    return;
+                }
 
-                AuditEvent::create([
-                    'organization_id' => $readyExp->organization_id,
-                    'actor_id' => $actorId ?: $readyExp->exported_by,
-                    'event_type' => 'DOCUMENT_EXPORT_BROKEN_READY',
-                    'entity_type' => 'document_exports',
-                    'entity_id' => $readyExp->id,
-                    'event_metadata' => [
-                        'letter_id' => $readyExp->letter_id,
-                        'reason' => 'CORRUPTED_SHA256_MISMATCH',
-                        'expected_sha256' => $readyExp->file_hash,
-                        'actual_sha256' => $actualHash,
-                    ],
-                    'occurred_at' => now(),
-                ]);
-            }
+                $absPath = $disk->path($lockedReady->file_path);
+                $actualHash = hash_file('sha256', $absPath);
+                if ($actualHash !== $lockedReady->file_hash) {
+                    $lockedReady->update([
+                        'status' => 'ERROR',
+                        'error_message' => 'Rekonsiliasi: Checksum SHA-256 berkas fisik tidak cocok dengan metadata.',
+                    ]);
+                    $brokenReadyMarkedError++;
+
+                    AuditEvent::create([
+                        'organization_id' => $lockedReady->organization_id,
+                        'actor_id' => $actorId ?: $lockedReady->exported_by,
+                        'event_type' => 'DOCUMENT_EXPORT_BROKEN_READY',
+                        'entity_type' => 'document_exports',
+                        'entity_id' => $lockedReady->id,
+                        'event_metadata' => [
+                            'letter_id' => $lockedReady->letter_id,
+                            'reason' => 'CORRUPTED_SHA256_MISMATCH',
+                            'expected_sha256' => $lockedReady->file_hash,
+                            'actual_sha256' => $actualHash,
+                        ],
+                        'occurred_at' => now(),
+                    ]);
+                }
+            });
         }
 
         // 4. Pindai berkas yatim di private_archives yang tidak memiliki metadata valid / proses aktif

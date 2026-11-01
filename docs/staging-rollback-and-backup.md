@@ -3,7 +3,7 @@
 
 **Sistem:** P4I Office v1.0  
 **Target Infrastruktur:** Hostinger Business Web Hosting  
-**Penyusun Teknis:** Gemini (Lead Software Engineer)  
+**Penyusun Teknis:** Argon — Reasoning Medium (Lead Software Engineer)  
 **Evaluator & Auditor:** GPT-6 (Software Architect & QA Auditor)  
 **Otoritas Administratif:** Ketua dan Dewan Pengurus Yayasan P4I  
 **Tanggal:** 01 November 2026  

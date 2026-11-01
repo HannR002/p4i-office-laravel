@@ -8,7 +8,7 @@
 **Database:** MariaDB 10.4.32 / InnoDB (`p4i_office_dev` & `p4i_office_test`)  
 **Target Hosting:** Hostinger Business Web Hosting  
 **Tim Perancangan, Software Architect, Auditor & Penyusun Laporan Resmi:** GPT-6  
-**Implementer & Technical Test Engineer:** Gemini (Lead Software Engineer)  
+**Implementer & Technical Test Engineer:** Argon — Reasoning Medium (Lead Software Engineer)  
 **Otoritas Administratif:** Ketua dan Dewan Pengurus Yayasan P4I  
 **Status Akhir:** **`LOCAL PREPARATION COMPLETE — HOSTINGER STAGING BLOCKED`**  
 

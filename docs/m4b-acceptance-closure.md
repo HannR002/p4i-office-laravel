@@ -4,7 +4,7 @@
 **Sprint:** M5A — Tahap 1, 2, dan 3 (Audit & Penutupan Temuan Sprint M4B)  
 **Branch:** `feat/sprint-m5a-staging-readiness`  
 **Baseline Commit M4B:** `a53ee3dc51ba1f59d40d2a5b82be045f2c5255d2`  
-**Implementer & Technical Test Engineer:** Gemini (Lead Software Engineer)  
+**Implementer & Technical Test Engineer:** Argon — Reasoning Medium (Lead Software Engineer)  
 **Software Architect, QA Auditor & Penyusun Laporan Resmi:** GPT-6  
 **Otoritas Administratif:** Ketua dan Dewan Pengurus Yayasan P4I  
 **Tanggal Verifikasi:** 01 November 2026  

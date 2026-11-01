@@ -399,4 +399,92 @@ class MultiPageDocumentValidationTest extends TestCase
         $this->assertNotEmpty($loaded1->getSections());
         $this->assertNotEmpty($loaded3->getSections());
     }
+
+    /**
+     * M5B-A (Section 3.B): Verifikasi mendalam per-halaman (Page Object / Contents Stream & Logical DOCX Pages)
+     * serta artefak render visual (bukan hanya page break tag atau checksum).
+     */
+    public function test_m5b_a_page_by_page_rendered_content_table_and_watermark_verification(): void
+    {
+        $m4bDir = base_path('docs/evidence/sprint-m4b');
+        $m5baDir = base_path('docs/evidence/sprint-m5b-a');
+
+        $p1Pdf = $m4bDir.'/sample_1page_draft.pdf';
+        $p3Pdf = $m4bDir.'/sample_3page_draft.pdf';
+        $p1Docx = $m4bDir.'/sample_1page_draft.docx';
+        $p3Docx = $m4bDir.'/sample_3page_draft.docx';
+
+        // 1. Pemetaan Objek Halaman PDF (/Type /Page -> /Contents -> FlateDecode Stream) untuk 3-Page PDF
+        $raw3 = file_get_contents($p3Pdf);
+        $objects = [];
+        preg_match_all('/(\d+)\s+0\s+obj\b(.*?)endobj/s', $raw3, $objMatches, PREG_SET_ORDER);
+        foreach ($objMatches as $m) {
+            $objects[(int) $m[1]] = $m[2];
+        }
+
+        $pageStreams = [];
+        foreach ($objects as $objBody) {
+            if (preg_match('/\/Type\s*\/Page\b(?!s)/', $objBody) && preg_match('/\/Contents\s+(\d+)\s+0\s+R/', $objBody, $cm)) {
+                $cid = (int) $cm[1];
+                if (isset($objects[$cid]) && preg_match('/stream\r?\n(.*?)\r?\nendstream/s', $objects[$cid], $sm)) {
+                    $pageStreams[] = (string) @gzuncompress($sm[1]);
+                }
+            }
+        }
+
+        $this->assertCount(3, $pageStreams, 'Harus terdapat tepat 3 content stream halaman terpisah pada sample_3page_draft.pdf.');
+
+        // Setiap halaman (Hal 1, Hal 2, Hal 3) wajib memuat watermark diagonal dan footer draf
+        foreach ($pageStreams as $idx => $stream) {
+            $pageNum = $idx + 1;
+            $this->assertStringContainsString('BELUM RESMI', $stream, "Halaman {$pageNum} PDF wajib memuat watermark diagonal.");
+            $this->assertStringContainsString('TIDAK BERLAKU SEBAGAI SURAT RESMI', $stream, "Halaman {$pageNum} PDF wajib memuat sub-watermark.");
+            $this->assertStringContainsString('NOMOR RESMI STRICTLY NULL', $stream, "Halaman {$pageNum} PDF wajib memuat footer draf.");
+        }
+
+        // Verifikasi isi spesifik per halaman pada sample_3page_draft.pdf
+        $this->assertStringContainsString('BAGIAN I: PENDAHULUAN', $pageStreams[0]);
+        $this->assertStringContainsString('[SIMULASI] DRAF/P4I/2026/REV-1', $pageStreams[0]);
+
+        $this->assertStringContainsString('BAGIAN II: MATRIKS CAPAIAN INDIKATOR KINERJA UTAMA', $pageStreams[1]);
+        $this->assertStringContainsString('Program Strategis', $pageStreams[1]);
+        $this->assertStringContainsString('Pelatihan Tata Kelola', $pageStreams[1]);
+        $this->assertStringContainsString('Lokakarya Nasional', $pageStreams[1]);
+
+        $this->assertStringContainsString('BAGIAN III: REKOMENDASI KEBIJAKAN', $pageStreams[2]);
+        $this->assertStringContainsString('[TANDA TANGAN BELUM DITERBITKAN]', $pageStreams[2]);
+        $this->assertStringContainsString('PERHATIAN KEARSIPAN:', $pageStreams[2]);
+        $this->assertStringContainsString('Revisi Ke-1', $pageStreams[2]);
+
+        // 2. Verifikasi per-halaman logis dan tabel pada sample_3page_draft.docx
+        $zip = new ZipArchive;
+        $this->assertTrue($zip->open($p3Docx) === true);
+        $docXml = (string) $zip->getFromName('word/document.xml');
+        $headerXml = (string) $zip->getFromName('word/header1.xml');
+        $footerXml = (string) $zip->getFromName('word/footer1.xml');
+        $zip->close();
+
+        $this->assertStringContainsString('DRAF — BELUM RESMI — TIDAK BERLAKU SEBAGAI SURAT KELUAR', $headerXml);
+        $this->assertStringContainsString('Segala bentuk penomoran resmi, tanda tangan, dan stempel dinonaktifkan.', $footerXml);
+
+        $docxPages = preg_split('/<w:br\s+w:type="page"\s*\/>/', $docXml);
+        $this->assertCount(3, $docxPages, 'sample_3page_draft.docx harus terbagi menjadi 3 halaman logis.');
+        $this->assertStringContainsString('BAGIAN I: PENDAHULUAN', $docxPages[0]);
+        $this->assertStringNotContainsString('<w:tbl>', $docxPages[0]);
+
+        $this->assertStringContainsString('BAGIAN II: MATRIKS CAPAIAN', $docxPages[1]);
+        $this->assertStringContainsString('<w:tbl>', $docxPages[1]);
+        $this->assertEquals(7, substr_count($docxPages[1], '<w:tr>'), 'Tabel pada Halaman 2 DOCX harus memiliki 7 baris (1 header + 6 baris data).');
+
+        $this->assertStringContainsString('BAGIAN III: REKOMENDASI KEBIJAKAN', $docxPages[2]);
+        $this->assertStringContainsString('[TANDA TANGAN BELUM DITERBITKAN]', $docxPages[2]);
+        $this->assertStringContainsString('Revisi Ke-1', $docxPages[2]);
+
+        // 3. Verifikasi keberadaan bukti hasil render visual (PNG) dan laporan ekstraksi JSON di docs/evidence/sprint-m5b-a/
+        $this->assertFileExists($m5baDir.'/document_verification_report.json');
+        $this->assertFileExists($m5baDir.'/render_docx_1page_p1.png');
+        $this->assertFileExists($m5baDir.'/render_docx_3page_p1.png');
+        $this->assertFileExists($m5baDir.'/render_docx_3page_p2.png');
+        $this->assertFileExists($m5baDir.'/render_docx_3page_p3.png');
+    }
 }

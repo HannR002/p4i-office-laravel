@@ -2,7 +2,7 @@
 ## SPRINT M5A — ACCEPTANCE GATES STG-01 S/D STG-16 & KEPUTUSAN TATA KELOLA
 
 **Sistem:** P4I Office v1.0  
-**Penyusun Teknis:** Gemini (Lead Software Engineer & Technical Test Engineer)  
+**Penyusun Teknis:** Argon — Reasoning Medium (Lead Software Engineer & Technical Test Engineer)  
 **Software Architect, QA Auditor & Penyusun Laporan Resmi:** GPT-6  
 **Otoritas Keputusan Go/No-Go:** Ketua dan Dewan Pengurus Yayasan P4I  
 **Tanggal Evaluasi:** 01 November 2026  

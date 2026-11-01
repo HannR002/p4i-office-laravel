@@ -3,7 +3,7 @@
 
 **Sistem:** P4I Office v1.0  
 **Target Hosting:** Hostinger Business Web Hosting  
-**Penyusun Teknis:** Gemini (Lead Software Engineer)  
+**Penyusun Teknis:** Argon — Reasoning Medium (Lead Software Engineer)  
 **Arsitek & Auditor Independen:** GPT-6  
 **Otoritas Pemberi Izin:** Ketua dan Dewan Pengurus Yayasan P4I (Pemilik Proyek)  
 **Status Pelaksanaan:** **PERENCANAAN LOKAL SELESAI — EKSEKUSI KE HOSTINGER BLOCKED (MENUNGGU IZIN EKSPLISIT)**  
