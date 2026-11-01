@@ -14,6 +14,7 @@ use App\Services\DocumentExportService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use PhpOffice\PhpWord\IOFactory;
 use Tests\TestCase;
 use ZipArchive;
 
@@ -354,13 +355,28 @@ class MultiPageDocumentValidationTest extends TestCase
         preg_match_all('/\/Type\s*\/Page\b/', $pdf1Bytes, $m1);
         $this->assertEquals(1, count($m1[0]), 'sample_1page_draft.pdf harus tepat 1 halaman.');
 
-        // Verifikasi PDF 3 halaman
+        // Verifikasi PDF 3 halaman dan ekstraksi stream tiap halaman (STG-03)
         $pdf3Bytes = file_get_contents($p3Pdf);
         $this->assertStringStartsWith('%PDF-', $pdf3Bytes);
         preg_match_all('/\/Type\s*\/Page\b/', $pdf3Bytes, $m3);
-        $this->assertGreaterThanOrEqual(3, count($m3[0]), 'sample_3page_draft.pdf harus minimal 3 halaman.');
+        $this->assertEquals(3, count($m3[0]), 'sample_3page_draft.pdf harus tepat 3 halaman.');
 
-        // Verifikasi DOCX 3 halaman macro-free
+        preg_match_all('/stream\r?\n(.*?)\r?\nendstream/s', $pdf3Bytes, $streams);
+        $this->assertGreaterThanOrEqual(3, count($streams[1]));
+        $tableFoundInPdf = false;
+        foreach ($streams[1] as $rawStream) {
+            $dec = @gzuncompress($rawStream);
+            if ($dec !== false && str_contains($dec, 'DRAF')) {
+                $this->assertStringContainsString('BELUM RESMI', $dec);
+                $this->assertStringContainsString('DRAF SIMULASI P4I', $dec);
+                if (str_contains($dec, 'Program Strategis') && str_contains($dec, 'Pelatihan Tata Kelola')) {
+                    $tableFoundInPdf = true;
+                }
+            }
+        }
+        $this->assertTrue($tableFoundInPdf, 'Tabel capaian IKU harus ter-render di dalam stream halaman PDF 3 halaman.');
+
+        // Verifikasi DOCX 1 halaman dan 3 halaman valid secara OpenXML, macro-free, dan dapat dibaca IOFactory::load (STG-03)
         $zip = new ZipArchive;
         $this->assertTrue($zip->open($p3Docx) === true);
         $hasMacro = false;
@@ -374,6 +390,13 @@ class MultiPageDocumentValidationTest extends TestCase
         $docXml = $zip->getFromName('word/document.xml');
         $this->assertStringContainsString('w:type="page"', $docXml);
         $this->assertStringContainsString('<w:tbl', $docXml);
+        $this->assertStringContainsString('PERHATIAN KEARSIPAN:', $docXml);
+        $this->assertStringContainsString('Revisi Ke-1', $docXml);
         $zip->close();
+
+        $loaded1 = IOFactory::load($p1Docx, 'Word2007');
+        $loaded3 = IOFactory::load($p3Docx, 'Word2007');
+        $this->assertNotEmpty($loaded1->getSections());
+        $this->assertNotEmpty($loaded3->getSections());
     }
 }

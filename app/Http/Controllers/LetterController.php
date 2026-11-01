@@ -7,10 +7,10 @@ use App\Models\LetterTemplate;
 use App\Models\LetterType;
 use App\Services\ApprovalWorkflowService;
 use App\Services\LetterDraftService;
+use App\Services\MandateValidationService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\DB;
 use Illuminate\View\View;
 
 class LetterController extends Controller
@@ -31,31 +31,9 @@ class LetterController extends Controller
         $query = Letter::where('organization_id', $user->organization_id)
             ->with(['letterType', 'author', 'template']);
 
-        // Penegakan Kerahasiaan (Confidentiality Scoping - M4B-04):
+        // Penegakan Kerahasiaan (Confidentiality Scoping - M4B-04, STG-04):
         // Dokumen rahasia hanya tampil untuk pembuat (author) atau pemegang mandat aktif yang sah.
-        $query->where(function ($q) use ($user) {
-            $q->whereNotIn('classification', ['CONFIDENTIAL', 'RAHASIA'])
-                ->orWhere('author_id', $user->id)
-                ->orWhereExists(function ($sub) use ($user) {
-                    $today = now()->format('Y-m-d');
-                    $sub->select(DB::raw(1))
-                        ->from('signatory_mandates')
-                        ->where('signatory_mandates.organization_id', $user->organization_id)
-                        ->where('signatory_mandates.user_id', $user->id)
-                        ->where('signatory_mandates.status', 'ACTIVE')
-                        ->whereNull('signatory_mandates.revoked_at')
-                        ->whereDate('signatory_mandates.valid_from', '<=', $today)
-                        ->whereDate('signatory_mandates.valid_to', '>=', $today)
-                        ->where(function ($m) {
-                            $m->where('signatory_mandates.can_review', true)
-                                ->orWhere('signatory_mandates.can_approve', true);
-                        })
-                        ->where(function ($m) {
-                            $m->whereNull('signatory_mandates.letter_type_id')
-                                ->orWhereColumn('signatory_mandates.letter_type_id', 'letters.letter_type_id');
-                        });
-                });
-        });
+        app(MandateValidationService::class)->applyConfidentialityScope($query, $user);
 
         // Pencarian teks (perihal, nama penerima)
         if ($request->filled('search')) {

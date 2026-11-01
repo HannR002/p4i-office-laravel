@@ -438,4 +438,49 @@ class ConfidentialArchiveAuthorizationTest extends TestCase
         $this->expectException(DomainException::class);
         $this->exportService->exportLetter($this->adminA, $letter, 'PDF');
     }
+
+    /**
+     * STG-04: Seluruh rute HTTP kearsipan dan daftar surat menegakkan isolasi unit kerja pada mandat dokumen rahasia.
+     */
+    public function test_stg_04_http_archive_routes_enforce_confidential_and_unit_isolation(): void
+    {
+        $letter = $this->createConfidentialLetter('RAHASIA', $this->typeNota);
+        $export = $this->exportService->exportLetter($this->authorA, $letter, 'PDF');
+
+        // Berikan mandat untuk unitA2 (sedangkan surat milik authorA di unitA1)
+        SignatoryMandate::create([
+            'organization_id' => $this->orgA->id,
+            'user_id' => $this->reviewerWithMandate->id,
+            'unit_id' => $this->unitA2->id,
+            'letter_type_id' => $this->typeNota->id,
+            'decree_number' => 'SK-MANDAT/P4I/2026/STG04',
+            'status' => 'ACTIVE',
+            'valid_from' => Carbon::now()->subMonth(),
+            'valid_to' => Carbon::now()->addMonths(6),
+            'can_review' => true,
+            'can_approve' => true,
+        ]);
+
+        // 1. POST /letters/{letter}/export ditolak 403
+        $resExport = $this->actingAs($this->reviewerWithMandate)
+            ->post(route('letters.export', $letter), ['format' => 'PDF']);
+        $resExport->assertStatus(403);
+
+        // 2. GET /archives/{export}/download ditolak 403
+        $resDownload = $this->actingAs($this->reviewerWithMandate)
+            ->get(route('archives.download', $export));
+        $resDownload->assertStatus(403);
+
+        // 3. GET /archives (index) menyembunyikan dokumen rahasia beda unit kerja
+        $resArchivesIndex = $this->actingAs($this->reviewerWithMandate)
+            ->get(route('archives.index'));
+        $resArchivesIndex->assertStatus(200);
+        $resArchivesIndex->assertDontSee('Investigasi Internal Keuangan dan Tata Kelola');
+
+        // 4. GET /letters (index) menyembunyikan surat rahasia beda unit kerja
+        $resLettersIndex = $this->actingAs($this->reviewerWithMandate)
+            ->get(route('letters.index'));
+        $resLettersIndex->assertStatus(200);
+        $resLettersIndex->assertDontSee('Investigasi Internal Keuangan dan Tata Kelola');
+    }
 }

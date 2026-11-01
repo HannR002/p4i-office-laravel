@@ -187,4 +187,38 @@ class MandateValidationService
 
         return $query->exists();
     }
+
+    /**
+     * Menerapkan penyaringan SQL ketat untuk naskah rahasia pada kueri Letter (STG-04).
+     */
+    public function applyConfidentialityScope($letterQuery, User $user): void
+    {
+        $letterQuery->where(function ($q) use ($user) {
+            $q->whereNotIn('letters.classification', ['CONFIDENTIAL', 'RAHASIA'])
+                ->orWhere('letters.author_id', $user->id)
+                ->orWhereExists(function ($sub) use ($user) {
+                    $today = now()->format('Y-m-d');
+                    $sub->selectRaw('1')
+                        ->from('signatory_mandates')
+                        ->where('signatory_mandates.organization_id', $user->organization_id)
+                        ->where('signatory_mandates.user_id', $user->id)
+                        ->where('signatory_mandates.status', 'ACTIVE')
+                        ->whereNull('signatory_mandates.revoked_at')
+                        ->whereDate('signatory_mandates.valid_from', '<=', $today)
+                        ->whereDate('signatory_mandates.valid_to', '>=', $today)
+                        ->where(function ($m) {
+                            $m->where('signatory_mandates.can_review', true)
+                                ->orWhere('signatory_mandates.can_approve', true);
+                        })
+                        ->where(function ($m) {
+                            $m->whereNull('signatory_mandates.letter_type_id')
+                                ->orWhereColumn('signatory_mandates.letter_type_id', 'letters.letter_type_id');
+                        })
+                        ->where(function ($m) {
+                            $m->whereNull('signatory_mandates.unit_id')
+                                ->orWhereRaw('signatory_mandates.unit_id = COALESCE(letters.unit_id, (SELECT u.unit_id FROM users u WHERE u.id = letters.author_id))');
+                        });
+                });
+        });
+    }
 }

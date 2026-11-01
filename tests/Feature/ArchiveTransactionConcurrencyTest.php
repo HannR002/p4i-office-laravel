@@ -253,4 +253,144 @@ class ArchiveTransactionConcurrencyTest extends TestCase
             'status' => 'READY',
         ]);
     }
+
+    /**
+     * STG-05: Penghentian proses PHP mendadak (SIGKILL/OOM/Timeout yang melewati try...catch)
+     * direkonsiliasi secara aman:
+     * 1. Mendeteksi PENDING macet (stale PENDING).
+     * 2. Memeriksa berkas sementara (temp dir) dan berkas hasil ekspor.
+     * 3. Memverifikasi hash SHA-256 berkas.
+     * 4. Memulihkan pekerjaan utuh ber-hash cocok, dan menandai ERROR + menghapus berkas parsial bagi yang terputus.
+     * 5. Tidak menghapus berkas valid milik proses READY maupun proses PENDING aktif yang baru berjalan.
+     * 6. Menjamin tidak ada metadata READY yang menunjuk ke berkas hilang atau korup.
+     */
+    public function test_stg_05_sudden_process_crash_reconciles_stale_pending_and_protects_valid_files(): void
+    {
+        $letter = $this->createTestLetter();
+        $revision = $letter->latestRevision;
+        $disk = Storage::disk('private_archives');
+        $year = Carbon::now()->format('Y');
+
+        // A. Berkas READY yang valid (milik proses sah yang sudah selesai) -> TIDAK BOLEH DIHAPUS
+        $validExport = $this->exportService->exportLetter($this->author, $letter, 'PDF', 'stg05_valid_ready');
+        $this->assertEquals('READY', $validExport->status);
+        $validPdfBytes = $disk->get($validExport->file_path);
+
+        // B. Proses PENDING aktif (baru berjalan 1 menit lalu) dengan berkas sedang ditulis -> TIDAK BOLEH DIHAPUS
+        $activePending = DocumentExport::create([
+            'organization_id' => $this->org->id,
+            'letter_id' => $letter->id,
+            'revision_id' => $revision->id,
+            'revision_version' => $revision->version,
+            'content_hash' => hash('sha256', json_encode($revision->content)),
+            'format' => 'PDF',
+            'status' => 'PENDING',
+            'idempotency_key' => 'stg05_active_pending',
+            'exported_by' => $this->author->id,
+        ]);
+        $activePendingRelPath = "{$this->org->id}/{$year}/PDF/{$activePending->id}.pdf";
+        $disk->put($activePendingRelPath, $validPdfBytes);
+
+        // C. Proses PENDING macet (30 menit lalu) yang mati mendadak saat baru menulis berkas parsial rusak -> HARUS JADI ERROR & FILE DIHAPUS
+        $stalePartialPending = DocumentExport::create([
+            'organization_id' => $this->org->id,
+            'letter_id' => $letter->id,
+            'revision_id' => $revision->id,
+            'revision_version' => $revision->version,
+            'content_hash' => hash('sha256', json_encode($revision->content)),
+            'format' => 'PDF',
+            'status' => 'PENDING',
+            'idempotency_key' => 'stg05_stale_partial',
+            'exported_by' => $this->author->id,
+        ]);
+        DB::table('document_exports')->where('id', $stalePartialPending->id)->update([
+            'created_at' => now()->subMinutes(30),
+            'updated_at' => now()->subMinutes(30),
+        ]);
+        $stalePartialRelPath = "{$this->org->id}/{$year}/PDF/{$stalePartialPending->id}.pdf";
+        $disk->put($stalePartialRelPath, '%PDF-1.4 PARTIAL CRASHED STREAM WITHOUT EOF');
+
+        // D. Proses PENDING macet (30 menit lalu) yang sudah selesai menulis berkas utuh & mencatat hash, namun mati tepat sebelum status=READY -> HARUS DIPULIHKAN JADI READY
+        $staleRecoverablePending = DocumentExport::create([
+            'organization_id' => $this->org->id,
+            'letter_id' => $letter->id,
+            'revision_id' => $revision->id,
+            'revision_version' => $revision->version,
+            'content_hash' => hash('sha256', json_encode($revision->content)),
+            'format' => 'PDF',
+            'file_hash' => hash('sha256', $validPdfBytes),
+            'status' => 'PENDING',
+            'idempotency_key' => 'stg05_stale_recoverable',
+            'exported_by' => $this->author->id,
+        ]);
+        $staleRecoverableRelPath = "{$this->org->id}/{$year}/PDF/{$staleRecoverablePending->id}.pdf";
+        $disk->put($staleRecoverableRelPath, $validPdfBytes);
+        DB::table('document_exports')->where('id', $staleRecoverablePending->id)->update([
+            'file_path' => $staleRecoverableRelPath,
+            'created_at' => now()->subMinutes(30),
+            'updated_at' => now()->subMinutes(30),
+        ]);
+
+        // E. Metadata READY yang berkas fisiknya hilang -> HARUS DITANDAI ERROR (Tidak boleh ada READY menunjuk ke file hilang)
+        $brokenMissingReady = DocumentExport::create([
+            'organization_id' => $this->org->id,
+            'letter_id' => $letter->id,
+            'revision_id' => $revision->id,
+            'revision_version' => $revision->version,
+            'content_hash' => hash('sha256', json_encode($revision->content)),
+            'format' => 'PDF',
+            'file_path' => "{$this->org->id}/{$year}/PDF/missing_file_id.pdf",
+            'file_hash' => str_repeat('a', 64),
+            'file_size' => 4096,
+            'mime_type' => 'application/pdf',
+            'status' => 'READY',
+            'idempotency_key' => 'stg05_broken_missing_ready',
+            'exported_by' => $this->author->id,
+        ]);
+
+        // F. Berkas sementara (temp file) yatim berusia 40 menit di sys_get_temp_dir() -> HARUS DIHAPUS
+        $staleTempFile = sys_get_temp_dir().DIRECTORY_SEPARATOR.'p4i_export_stale_test_'.uniqid().'.pdf';
+        file_put_contents($staleTempFile, 'STALE TEMP CONTENT');
+        touch($staleTempFile, now()->subMinutes(40)->getTimestamp());
+
+        // Jalankan mekanisme rekonsiliasi crash recovery
+        $report = $this->exportService->reconcileInterruptedExports(15, $this->org->id, $this->author->id);
+
+        // Verifikasi hasil rekonsiliasi
+        $this->assertEquals(1, $report['recovered_pending'], 'PENDING utuh ber-hash cocok harus dipulihkan menjadi READY.');
+        $this->assertEquals(1, $report['failed_stale_pending'], 'PENDING parsial macet harus ditandai ERROR.');
+        $this->assertEquals(1, $report['broken_ready_marked_error'], 'Metadata READY tanpa berkas fisik harus diubah menjadi ERROR.');
+        $this->assertGreaterThanOrEqual(1, $report['stale_temp_files_removed'], 'Berkas temp yatim harus dibersihkan.');
+
+        // 1. Berkas READY valid tetap utuh dan tidak terhapus
+        $this->assertEquals('READY', $validExport->fresh()->status);
+        $this->assertTrue($disk->exists($validExport->file_path));
+
+        // 2. Proses PENDING aktif (belum stale) tetap PENDING dan berkasnya tidak dihapus
+        $this->assertEquals('PENDING', $activePending->fresh()->status);
+        $this->assertTrue($disk->exists($activePendingRelPath));
+
+        // 3. Proses PENDING parsial menjadi ERROR dan berkas parsialnya telah dihapus dari storage
+        $this->assertEquals('ERROR', $stalePartialPending->fresh()->status);
+        $this->assertFalse($disk->exists($stalePartialRelPath));
+
+        // 4. Proses PENDING utuh ber-hash cocok berhasil dipulihkan menjadi READY
+        $this->assertEquals('READY', $staleRecoverablePending->fresh()->status);
+        $this->assertTrue($disk->exists($staleRecoverableRelPath));
+
+        // 5. Metadata READY yang kehilangan berkas fisik kini berstatus ERROR (tidak ada metadata READY menunjuk file hilang)
+        $this->assertEquals('ERROR', $brokenMissingReady->fresh()->status);
+        $this->assertFalse(file_exists($staleTempFile));
+    }
+
+    /**
+     * STG-05 & STG-12: Perintah konsol Artisan p4i:reconcile-exports berjalan bersih untuk cron job Hostinger.
+     */
+    public function test_stg_05_reconcile_exports_artisan_command_executes_cleanly(): void
+    {
+        $this->artisan('p4i:reconcile-exports', [
+            '--stale-minutes' => 15,
+            '--org' => $this->org->id,
+        ])->assertExitCode(0);
+    }
 }

@@ -16,6 +16,7 @@ use Illuminate\Support\Str;
 use InvalidArgumentException;
 use PhpOffice\PhpWord\IOFactory;
 use PhpOffice\PhpWord\PhpWord;
+use PhpOffice\PhpWord\Settings;
 use PhpOffice\PhpWord\SimpleType\Jc;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -195,19 +196,31 @@ class DocumentExportService
             return trim(strip_tags((string) $clean));
         }, $bodyParagraphs);
 
-        // Dukungan data tabel bila disediakan dalam revisi (M4B-07)
+        // Dukungan data tabel bila disediakan dalam revisi (M4B-07, STG-03)
         $tables = [];
+        $plainTables = [];
         if (isset($content['tables']) && is_array($content['tables'])) {
             foreach ($content['tables'] as $tbl) {
                 if (is_array($tbl)) {
                     $cleanRows = [];
+                    $plainRows = [];
                     foreach ($tbl as $row) {
                         if (is_array($row)) {
-                            $cleanRows[] = array_map(fn ($c) => htmlspecialchars(trim(strip_tags((string) $c)), ENT_QUOTES, 'UTF-8'), $row);
+                            $cleanRows[] = array_map(function ($c) {
+                                $stripped = preg_replace('/<script\b[^>]*>(.*?)<\/script>/is', '', (string) $c);
+
+                                return htmlspecialchars(trim(strip_tags((string) $stripped)), ENT_QUOTES, 'UTF-8');
+                            }, $row);
+                            $plainRows[] = array_map(function ($c) {
+                                $stripped = preg_replace('/<script\b[^>]*>(.*?)<\/script>/is', '', (string) $c);
+
+                                return trim(strip_tags((string) $stripped));
+                            }, $row);
                         }
                     }
                     if (! empty($cleanRows)) {
                         $tables[] = $cleanRows;
+                        $plainTables[] = $plainRows;
                     }
                 }
             }
@@ -215,7 +228,7 @@ class DocumentExportService
 
         $dateFormatted = Carbon::parse($letter->planned_date ?: now())->locale('id')->translatedFormat('d F Y');
 
-        // Nomor Surat: Tetap NULL / Pratinjau Draf Simulasi (M4A-05)
+        // Nomor Surat: Tetap NULL / Pratinjau Draf Simulasi (M4A-05, STG-15)
         $draftNumber = '[SIMULASI] DRAF/P4I/'.Carbon::now()->format('Y').'/REV-'.$revision->version;
 
         return [
@@ -227,10 +240,13 @@ class DocumentExportService
             'classification' => $letter->classification,
             'date_formatted' => $dateFormatted,
             'recipient_name' => htmlspecialchars($letter->recipient_name, ENT_QUOTES, 'UTF-8'),
+            'plain_recipient_name' => trim(strip_tags((string) $letter->recipient_name)),
             'subject' => htmlspecialchars($letter->subject, ENT_QUOTES, 'UTF-8'),
+            'plain_subject' => trim(strip_tags((string) $letter->subject)),
             'body_paragraphs' => $cleanParagraphs,
             'plain_body_paragraphs' => $plainParagraphs,
             'tables' => $tables,
+            'plain_tables' => $plainTables,
             'revision_version' => $revision->version,
             'exported_by_name' => $exporter->display_name,
             'exported_at' => Carbon::now()->format('d/m/Y H:i:s').' WIB',
@@ -263,34 +279,48 @@ class DocumentExportService
     }
 
     /**
-     * Membangun HTML untuk PDF dengan watermark pada setiap halaman.
+     * Membangun HTML untuk PDF dengan watermark pada setiap halaman dan dukungan tabel (STG-03).
      */
     private function buildPdfHtml(array $ctx): string
     {
+        $tableBlocks = [];
+        if (! empty($ctx['tables'])) {
+            foreach ($ctx['tables'] as $tIdx => $tbl) {
+                $tHtml = '<table style="width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 10pt;">';
+                foreach ($tbl as $rIndex => $row) {
+                    $tHtml .= '<tr>';
+                    foreach ($row as $cell) {
+                        $isHeader = ($rIndex === 0);
+                        $tag = $isHeader ? 'th' : 'td';
+                        $bg = $isHeader ? 'background-color: #f3f4f6; font-weight: bold;' : '';
+                        $tHtml .= "<{$tag} style=\"border: 1px solid #9ca3af; padding: 6px 8px; text-align: left; {$bg}\">{$cell}</{$tag}>";
+                    }
+                    $tHtml .= '</tr>';
+                }
+                $tHtml .= '</table>';
+                $tableBlocks[$tIdx] = $tHtml;
+            }
+        }
+
+        $renderedTableIndices = [];
         $paragraphsHtml = '';
         foreach ($ctx['body_paragraphs'] as $p) {
             if ($p === '[PAGE_BREAK]') {
                 $paragraphsHtml .= '<div style="page-break-after: always; height: 0; line-height: 0;"></div>';
+            } elseif (preg_match('/^\[TABLE:(\d+)\]$/', $p, $m)) {
+                $tIdx = (int) $m[1];
+                if (isset($tableBlocks[$tIdx])) {
+                    $paragraphsHtml .= $tableBlocks[$tIdx];
+                    $renderedTableIndices[$tIdx] = true;
+                }
             } else {
                 $paragraphsHtml .= '<p style="margin-bottom: 12px; text-align: justify; line-height: 1.6;">'.$p.'</p>';
             }
         }
 
-        $tablesHtml = '';
-        if (! empty($ctx['tables'])) {
-            foreach ($ctx['tables'] as $tbl) {
-                $tablesHtml .= '<table style="width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 10pt;">';
-                foreach ($tbl as $rIndex => $row) {
-                    $tablesHtml .= '<tr>';
-                    foreach ($row as $cell) {
-                        $isHeader = ($rIndex === 0);
-                        $tag = $isHeader ? 'th' : 'td';
-                        $bg = $isHeader ? 'background-color: #f3f4f6; font-weight: bold;' : '';
-                        $tablesHtml .= "<{$tag} style=\"border: 1px solid #9ca3af; padding: 6px 8px; text-align: left; {$bg}\">{$cell}</{$tag}>";
-                    }
-                    $tablesHtml .= '</tr>';
-                }
-                $tablesHtml .= '</table>';
+        foreach ($tableBlocks as $tIdx => $tHtml) {
+            if (! isset($renderedTableIndices[$tIdx])) {
+                $paragraphsHtml .= $tHtml;
             }
         }
 
@@ -481,10 +511,12 @@ HTML;
     }
 
     /**
-     * Render dokumen DOCX menggunakan PhpWord terisolasi dengan watermark header dan escaping (M4A-02, M4A-06).
+     * Render dokumen DOCX menggunakan PhpWord terisolasi dengan watermark header dan escaping (M4A-02, M4A-06, STG-03).
      */
     private function renderDocx(array $ctx, string $outputPath): void
     {
+        Settings::setOutputEscapingEnabled(true);
+
         $phpWord = new PhpWord;
 
         // Atur font default
@@ -498,7 +530,7 @@ HTML;
             'marginRight' => 1440,
         ]);
 
-        // 1. Header dengan Watermark Draf Tegas (M4A-02, M4A-03)
+        // 1. Header dengan Watermark Draf Tegas Berulang di Setiap Halaman (M4A-02, M4A-03, STG-03)
         $header = $section->addHeader();
         $header->addText(
             $ctx['watermark_text'],
@@ -521,41 +553,57 @@ HTML;
         $section->addTextBreak(1);
 
         // 3. Metadata Surat
+        $plainSubject = $ctx['plain_subject'] ?? $ctx['subject'];
+        $plainRecipient = $ctx['plain_recipient_name'] ?? $ctx['recipient_name'];
+
         $section->addText("Nomor   : {$ctx['letter_number']}", ['bold' => true, 'color' => 'B91C1C']);
         $section->addText("Sifat   : {$ctx['classification']}");
-        $section->addText("Perihal : {$ctx['subject']}", ['bold' => true]);
+        $section->addText("Perihal : {$plainSubject}", ['bold' => true]);
         $section->addText("Tanggal : Jakarta, {$ctx['date_formatted']}");
         $section->addTextBreak(1);
 
         // 4. Tujuan Surat
         $section->addText('Kepada Yth.');
-        $section->addText($ctx['recipient_name'], ['bold' => true]);
+        $section->addText($plainRecipient, ['bold' => true]);
         $section->addText('di Tempat');
         $section->addTextBreak(1);
 
-        // 5. Isi Naskah Dinas
+        // 5. Isi Naskah Dinas & Tabel Data Lampiran (STG-03)
+        $plainTables = $ctx['plain_tables'] ?? $ctx['tables'] ?? [];
+        $renderedTableIndices = [];
+
+        $renderDocxTable = function (array $tbl) use ($section) {
+            $table = $section->addTable(['borderSize' => 6, 'borderColor' => '999999', 'afterSpacing' => 120]);
+            foreach ($tbl as $rIndex => $row) {
+                $table->addRow();
+                $isHeader = ($rIndex === 0);
+                foreach ($row as $cell) {
+                    $cellBg = $isHeader ? 'F3F4F6' : 'FFFFFF';
+                    $cellObj = $table->addCell(2500, ['bgColor' => $cellBg, 'valign' => 'center']);
+                    $cellObj->addText((string) $cell, ['bold' => $isHeader, 'size' => 10]);
+                }
+            }
+            $section->addTextBreak(1);
+        };
+
         foreach ($ctx['plain_body_paragraphs'] as $p) {
             if ($p === '[PAGE_BREAK]') {
                 $section->addPageBreak();
+            } elseif (preg_match('/^\[TABLE:(\d+)\]$/', $p, $m)) {
+                $tIdx = (int) $m[1];
+                if (isset($plainTables[$tIdx])) {
+                    $renderDocxTable($plainTables[$tIdx]);
+                    $renderedTableIndices[$tIdx] = true;
+                }
             } else {
                 $section->addText($p, [], ['alignment' => Jc::BOTH, 'spaceAfter' => 180]);
             }
         }
 
-        // Tabel Data Lampiran (bila ada) (M4B-07)
-        if (! empty($ctx['tables'])) {
-            foreach ($ctx['tables'] as $tbl) {
-                $table = $section->addTable(['borderSize' => 6, 'borderColor' => '999999', 'afterSpacing' => 120]);
-                foreach ($tbl as $rIndex => $row) {
-                    $table->addRow();
-                    $isHeader = ($rIndex === 0);
-                    foreach ($row as $cell) {
-                        $cellBg = $isHeader ? 'F3F4F6' : 'FFFFFF';
-                        $cellObj = $table->addCell(2500, ['bgColor' => $cellBg, 'valign' => 'center']);
-                        $cellObj->addText((string) $cell, ['bold' => $isHeader, 'size' => 10]);
-                    }
-                }
-                $section->addTextBreak(1);
+        // Render tabel yang belum disisipkan secara inline
+        foreach ($plainTables as $tIdx => $tbl) {
+            if (! isset($renderedTableIndices[$tIdx])) {
+                $renderDocxTable($tbl);
             }
         }
 
@@ -567,9 +615,21 @@ HTML;
         $section->addText('Drs. H. Mulyadi, M.M.', ['bold' => true, 'underline' => 'single'], ['alignment' => Jc::RIGHT]);
         $section->addText('Ketua Yayasan', [], ['alignment' => Jc::RIGHT]);
 
-        $section->addTextBreak(2);
+        $section->addTextBreak(1);
 
-        // 7. Footer Penafian Hukum
+        // 7. Blok Penafian Hukum & Metadata Ekspor di Body (Konsisten dengan PDF - STG-03)
+        $section->addText(
+            "PERHATIAN KEARSIPAN: {$ctx['disclaimer_text']}",
+            ['size' => 8, 'bold' => true, 'color' => '991B1B'],
+            ['alignment' => Jc::CENTER]
+        );
+        $section->addText(
+            "Diekspor oleh: {$ctx['exported_by_name']} | Waktu: {$ctx['exported_at']} | Revisi Ke-{$ctx['revision_version']}",
+            ['size' => 8, 'color' => '991B1B'],
+            ['alignment' => Jc::CENTER]
+        );
+
+        // 8. Footer Penafian Hukum Berulang di Setiap Halaman
         $footer = $section->addFooter();
         $footer->addText(
             $ctx['disclaimer_text'],
@@ -691,5 +751,255 @@ HTML;
             'all_intact' => ($totalFiles > 0 && $validFiles === $totalFiles),
             'verified_at' => now()->toIso8601String(),
         ];
+    }
+
+    /**
+     * Mekanisme rekonsiliasi untuk menangani penghentian proses PHP mendadak (SIGKILL/OOM/Timeout) (STG-05):
+     * 1. Mendeteksi ekspor berstatus PENDING yang melewati ambang waktu (stale PENDING).
+     * 2. Memeriksa berkas sementara (temp dir) dan berkas hasil ekspor di penyimpanan privat.
+     * 3. Memverifikasi hash SHA-256 dan struktur biner berkas.
+     * 4. Memulihkan pekerjaan yang telah utuh menulis berkas valid ber-hash cocok, atau menandai ERROR dan membersihkan berkas parsial.
+     * 5. Tidak menghapus berkas valid milik proses READY maupun proses PENDING aktif yang baru berjalan.
+     * 6. Menjamin tidak ada metadata READY yang menunjuk ke berkas hilang atau korup.
+     */
+    public function reconcileInterruptedExports(int $staleThresholdMinutes = 15, ?string $organizationId = null, ?string $actorId = null): array
+    {
+        $disk = Storage::disk(self::DISK);
+        $cutoff = now()->subMinutes(max(1, $staleThresholdMinutes));
+        $cutoffTimestamp = $cutoff->getTimestamp();
+
+        $recoveredPending = 0;
+        $failedStalePending = 0;
+        $brokenReadyMarkedError = 0;
+        $orphanStorageFilesRemoved = 0;
+        $staleTempFilesRemoved = 0;
+
+        // 1. Bersihkan berkas sementara yatim (p4i_export_*) di sys_get_temp_dir() yang lebih tua dari cutoff
+        $tempDir = sys_get_temp_dir();
+        $tempFiles = glob($tempDir.DIRECTORY_SEPARATOR.'p4i_export_*') ?: [];
+        foreach ($tempFiles as $tmpFile) {
+            if (is_file($tmpFile)) {
+                $mtime = @filemtime($tmpFile);
+                if ($mtime !== false && $mtime <= $cutoffTimestamp) {
+                    if (@unlink($tmpFile)) {
+                        $staleTempFilesRemoved++;
+                    }
+                }
+            }
+        }
+
+        // 2. Periksa record PENDING yang sudah melewati ambang waktu (Stale PENDING)
+        $staleQuery = DocumentExport::where('status', 'PENDING')
+            ->where('created_at', '<=', $cutoff);
+
+        if ($organizationId) {
+            $staleQuery->where('organization_id', $organizationId);
+        }
+
+        $staleExports = $staleQuery->get();
+        foreach ($staleExports as $exp) {
+            $year = Carbon::parse($exp->created_at ?: now())->format('Y');
+            $ext = strtolower($exp->format);
+            $expectedRelPath = $exp->file_path ?: "{$exp->organization_id}/{$year}/{$exp->format}/{$exp->id}.{$ext}";
+
+            $canRecover = false;
+            if ($disk->exists($expectedRelPath)) {
+                $absPath = $disk->path($expectedRelPath);
+                $actualSize = @filesize($absPath) ?: 0;
+                if ($actualSize > 0 && $this->isValidExportBinary($absPath, $exp->format)) {
+                    $actualHash = hash_file('sha256', $absPath);
+                    if (! empty($exp->file_hash) && hash_equals($exp->file_hash, $actualHash)) {
+                        $canRecover = true;
+                        $mimeType = $exp->format === 'PDF'
+                            ? 'application/pdf'
+                            : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+
+                        $exp->update([
+                            'file_path' => $expectedRelPath,
+                            'file_size' => $actualSize,
+                            'mime_type' => $mimeType,
+                            'status' => 'READY',
+                            'error_message' => null,
+                        ]);
+                        $recoveredPending++;
+
+                        AuditEvent::create([
+                            'organization_id' => $exp->organization_id,
+                            'actor_id' => $actorId ?: $exp->exported_by,
+                            'event_type' => 'DOCUMENT_EXPORT_RECOVERED',
+                            'entity_type' => 'document_exports',
+                            'entity_id' => $exp->id,
+                            'event_metadata' => [
+                                'letter_id' => $exp->letter_id,
+                                'format' => $exp->format,
+                                'sha256' => $actualHash,
+                                'file_size' => $actualSize,
+                            ],
+                            'occurred_at' => now(),
+                        ]);
+                    }
+                }
+            }
+
+            if (! $canRecover) {
+                // Hapus berkas parsial/yatim jika sempat tertulis sebagian
+                if ($disk->exists($expectedRelPath)) {
+                    $disk->delete($expectedRelPath);
+                    $orphanStorageFilesRemoved++;
+                }
+
+                $exp->update([
+                    'status' => 'ERROR',
+                    'error_message' => 'Rekonsiliasi crash recovery: Proses ekspor terputus mendadak sebelum selesai.',
+                ]);
+                $failedStalePending++;
+
+                AuditEvent::create([
+                    'organization_id' => $exp->organization_id,
+                    'actor_id' => $actorId ?: $exp->exported_by,
+                    'event_type' => 'DOCUMENT_EXPORT_RECONCILED_ERROR',
+                    'entity_type' => 'document_exports',
+                    'entity_id' => $exp->id,
+                    'event_metadata' => [
+                        'letter_id' => $exp->letter_id,
+                        'format' => $exp->format,
+                        'reason' => 'STALE_PENDING_INTERRUPTED',
+                    ],
+                    'occurred_at' => now(),
+                ]);
+            }
+        }
+
+        // 3. Pastikan tidak ada metadata READY yang menunjuk ke berkas hilang atau korup
+        $readyQuery = DocumentExport::where('status', 'READY');
+        if ($organizationId) {
+            $readyQuery->where('organization_id', $organizationId);
+        }
+
+        $readyExports = $readyQuery->get();
+        foreach ($readyExports as $readyExp) {
+            if (empty($readyExp->file_path) || ! $disk->exists($readyExp->file_path)) {
+                $readyExp->update([
+                    'status' => 'ERROR',
+                    'error_message' => 'Rekonsiliasi: Berkas fisik arsip hilang dari penyimpanan privat.',
+                ]);
+                $brokenReadyMarkedError++;
+
+                AuditEvent::create([
+                    'organization_id' => $readyExp->organization_id,
+                    'actor_id' => $actorId ?: $readyExp->exported_by,
+                    'event_type' => 'DOCUMENT_EXPORT_BROKEN_READY',
+                    'entity_type' => 'document_exports',
+                    'entity_id' => $readyExp->id,
+                    'event_metadata' => [
+                        'letter_id' => $readyExp->letter_id,
+                        'reason' => 'MISSING_PHYSICAL_FILE',
+                    ],
+                    'occurred_at' => now(),
+                ]);
+
+                continue;
+            }
+
+            $absPath = $disk->path($readyExp->file_path);
+            $actualHash = hash_file('sha256', $absPath);
+            if ($actualHash !== $readyExp->file_hash) {
+                $readyExp->update([
+                    'status' => 'ERROR',
+                    'error_message' => 'Rekonsiliasi: Checksum SHA-256 berkas fisik tidak cocok dengan metadata.',
+                ]);
+                $brokenReadyMarkedError++;
+
+                AuditEvent::create([
+                    'organization_id' => $readyExp->organization_id,
+                    'actor_id' => $actorId ?: $readyExp->exported_by,
+                    'event_type' => 'DOCUMENT_EXPORT_BROKEN_READY',
+                    'entity_type' => 'document_exports',
+                    'entity_id' => $readyExp->id,
+                    'event_metadata' => [
+                        'letter_id' => $readyExp->letter_id,
+                        'reason' => 'CORRUPTED_SHA256_MISMATCH',
+                        'expected_sha256' => $readyExp->file_hash,
+                        'actual_sha256' => $actualHash,
+                    ],
+                    'occurred_at' => now(),
+                ]);
+            }
+        }
+
+        // 4. Pindai berkas yatim di private_archives yang tidak memiliki metadata valid / proses aktif
+        $scanRoot = $organizationId ?: '';
+        $allFiles = $disk->allFiles($scanRoot);
+        foreach ($allFiles as $relFile) {
+            $normalizedRel = str_replace('\\', '/', $relFile);
+            $fileId = pathinfo($normalizedRel, PATHINFO_FILENAME);
+
+            $record = DocumentExport::where('file_path', $normalizedRel)
+                ->orWhere('id', $fileId)
+                ->first();
+
+            // Jangan hapus berkas milik record READY yang valid
+            if ($record && $record->status === 'READY' && $record->file_path === $normalizedRel) {
+                continue;
+            }
+
+            // Jangan hapus berkas milik proses PENDING yang masih aktif berjalan (belum stale)
+            if ($record && $record->status === 'PENDING' && $record->created_at > $cutoff) {
+                continue;
+            }
+
+            // Jika tidak ada record DB sama sekali, periksa usia berkas agar tidak menghapus file proses lain yang baru saja menulis
+            if (! $record) {
+                $absFile = $disk->path($normalizedRel);
+                $mtime = @filemtime($absFile);
+                if ($mtime !== false && $mtime > $cutoffTimestamp) {
+                    continue;
+                }
+            }
+
+            // Berkas yatim terkonfirmasi: hapus secara aman
+            if ($disk->delete($normalizedRel)) {
+                $orphanStorageFilesRemoved++;
+            }
+        }
+
+        return [
+            'recovered_pending' => $recoveredPending,
+            'failed_stale_pending' => $failedStalePending,
+            'broken_ready_marked_error' => $brokenReadyMarkedError,
+            'orphan_storage_files_removed' => $orphanStorageFilesRemoved,
+            'stale_temp_files_removed' => $staleTempFilesRemoved,
+            'reconciled_at' => now()->toIso8601String(),
+        ];
+    }
+
+    /**
+     * Memeriksa keabsahan struktur biner berkas hasil ekspor (PDF atau DOCX).
+     */
+    public function isValidExportBinary(string $filePath, string $format): bool
+    {
+        if (! is_file($filePath) || filesize($filePath) < 100) {
+            return false;
+        }
+
+        $format = strtoupper($format);
+        if ($format === 'PDF') {
+            $content = file_get_contents($filePath);
+
+            return str_starts_with($content, '%PDF-') && str_contains($content, '%%EOF');
+        }
+
+        if ($format === 'DOCX') {
+            $zip = new \ZipArchive;
+            if ($zip->open($filePath) !== true) {
+                return false;
+            }
+            $hasDocXml = $zip->getFromName('word/document.xml') !== false;
+            $zip->close();
+
+            return $hasDocXml;
+        }
+
+        return false;
     }
 }

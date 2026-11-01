@@ -30,6 +30,18 @@ class DocumentArchiveController extends Controller
     {
         $user = Auth::user();
 
+        // 1. Verifikasi Tenancy Multi-Organisasi (STG-04)
+        if ($letter->organization_id !== $user->organization_id) {
+            abort(403, 'Akses ditolak: Surat bukan milik organisasi pengguna.');
+        }
+
+        // 2. Proteksi Dokumen CONFIDENTIAL / RAHASIA (M4B-02, STG-04)
+        if (in_array($letter->classification, ['CONFIDENTIAL', 'RAHASIA'], true)) {
+            if (! $this->mandateService->canAccessConfidential($user, $letter, 'EXPORT')) {
+                abort(403, 'Akses ditolak: Dokumen berklasifikasi RAHASIA hanya dapat diekspor oleh konseptor atau pemeriksa bermandat aktif yang sah.');
+            }
+        }
+
         $validated = $request->validate([
             'format' => ['required', 'string', 'in:PDF,DOCX,pdf,docx'],
             'idempotency_key' => ['nullable', 'string', 'max:128'],
@@ -104,30 +116,10 @@ class DocumentArchiveController extends Controller
         $query = DocumentExport::where('organization_id', $user->organization_id)
             ->with(['letter', 'exporter']);
 
-        // Penegakan Kerahasiaan (Confidentiality Scoping - M4B-04):
+        // Penegakan Kerahasiaan (Confidentiality Scoping - M4B-04, STG-04):
         // Dokumen rahasia hanya dapat dilihat oleh pembuat (author) atau pemeriksa yang memegang mandat aktif yang sah.
         $query->whereHas('letter', function ($q) use ($user) {
-            $q->whereNotIn('classification', ['CONFIDENTIAL', 'RAHASIA'])
-                ->orWhere('author_id', $user->id)
-                ->orWhereExists(function ($sub) use ($user) {
-                    $today = now()->format('Y-m-d');
-                    $sub->select(DB::raw(1))
-                        ->from('signatory_mandates')
-                        ->where('signatory_mandates.organization_id', $user->organization_id)
-                        ->where('signatory_mandates.user_id', $user->id)
-                        ->where('signatory_mandates.status', 'ACTIVE')
-                        ->whereNull('signatory_mandates.revoked_at')
-                        ->whereDate('signatory_mandates.valid_from', '<=', $today)
-                        ->whereDate('signatory_mandates.valid_to', '>=', $today)
-                        ->where(function ($m) {
-                            $m->where('signatory_mandates.can_review', true)
-                                ->orWhere('signatory_mandates.can_approve', true);
-                        })
-                        ->where(function ($m) {
-                            $m->whereNull('signatory_mandates.letter_type_id')
-                                ->orWhereColumn('signatory_mandates.letter_type_id', 'letters.letter_type_id');
-                        });
-                });
+            $this->mandateService->applyConfidentialityScope($q, $user);
         });
 
         // Filter Format

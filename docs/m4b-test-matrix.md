@@ -25,10 +25,10 @@
 | **M4B-10** | Pemulihan Crash Generator Dokumen & Pencegahan Berkas Yatim (*Orphan Files*) | `ArchiveTransactionConcurrencyTest.php` | `test_m4b_10_export_failure_prevents_orphan_file_and_records_audit`<br>`test_m4b_10_crash_recovery_updates_status_error_and_audits` | 8 | **PASS** |
 | **M4B-11** | Siklus Penuh Pemulihan Arsip Multi-Berkas (Disaster Recovery & Restore Multi-Tenant) | `IntegratedArchiveRestoreTest.php` | `test_m4b_11_integrated_multi_file_archive_backup_and_restore_cycle` | 18 | **PASS** |
 | **M4B-12** | Verifikasi Integritas SHA-256 Kriptografis, Metrik Byte & Deteksi Berkas Korup | `IntegratedArchiveRestoreTest.php` | `test_m4b_12_backup_sha256_checksum_verification_and_restore_metrics` | 9 | **PASS** |
-| **M4B-13** | Bukti Nyata Berkas Biner Tersimpan pada `docs/evidence/sprint-m4b/` (PDF & DOCX 1 & 3 Hal) | Filesystem Inspection & Test Suite | `docs/evidence/sprint-m4b/sample_1page_draft.pdf`<br>`docs/evidence/sprint-m4b/sample_3page_draft.pdf`<br>`docs/evidence/sprint-m4b/sample_1page_draft.docx`<br>`docs/evidence/sprint-m4b/sample_3page_draft.docx` | 6 | **PASS** |
-| **M4B-14** | Evaluasi Kesiapan Operasional Menghasilkan Status BLOCKED (Skor <= 50.0%) | `IntegratedArchiveRestoreTest.php` | `test_m4b_14_hostinger_staging_readiness_checklist_remains_blocked` | 3 | **PASS** |
+| **M4B-13** | Rekonsiliasi Acceptance Gates Sprint M4A sesuai Definisi Asli SRS | `docs/m4a-acceptance-reconciliation.md` | Audit pemetaan ulang M4A-01 s/d M4A-18 secara transparan | — | **PASS** |
+| **M4B-14** | Pengujian Hostinger Staging dengan Izin Eksplisit, atau Status BLOCKED | `IntegratedArchiveRestoreTest.php` & `docs/hostinger-staging-readiness.md` | `test_m4b_14_hostinger_staging_readiness_checklist_remains_blocked` (Izin akses Hostinger belum diberikan -> **BLOCKED**) | 3 | **BLOCKED** |
 | **M4B-15** | Penegakan Invarian Keras: `official_numbering_active = false` & `official_number = NULL` | `IntegratedArchiveRestoreTest.php` | `test_m4b_15_official_numbering_off_and_null_invariants` | 5 | **PASS** |
-| **M4B-16** | Paket Dokumentasi Resmi Lengkap Disinkronkan ke `D:\p4i-office\docs` & Clean Stop | Dokumentasi Proyek / File Check | Seluruh 8 dokumen arsitektur dan bukti implementasi tersedia | — | **PASS** |
+| **M4B-16** | Seluruh Pengujian, Bukti Fisik (`docs/evidence/sprint-m4b/`) dan Blocker Terdokumentasi Lengkap | Dokumentasi Proyek & Filesystem Inspection | `test_m4b_05_physical_evidence_artifacts_exist_and_pass_validation` + 8 dokumen di `docs/` | 6 | **PASS** |
 
 ---
 

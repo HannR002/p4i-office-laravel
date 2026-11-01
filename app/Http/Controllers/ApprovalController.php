@@ -85,6 +85,13 @@ class ApprovalController extends Controller
             abort(403, 'Pembuat draf dilarang memeriksa atau menyetujui pengajuannya sendiri (Self-approval ditolak).');
         }
 
+        // Proteksi Dokumen CONFIDENTIAL / RAHASIA (STG-04)
+        if (in_array($letter->classification, ['CONFIDENTIAL', 'RAHASIA'], true)) {
+            if (! $this->mandateService->canAccessConfidential($user, $letter, 'VIEW')) {
+                abort(403, 'Akses ditolak: Dokumen rahasia hanya dapat ditelaah oleh pejabat bermandat aktif yang sah.');
+            }
+        }
+
         // Cari permohonan persetujuan aktif atau riwayat permohonan terkini
         $approvalRequest = ApprovalRequest::where('letter_id', $letter->id)
             ->with(['steps.reviewer', 'steps.mandate', 'claimedBy'])

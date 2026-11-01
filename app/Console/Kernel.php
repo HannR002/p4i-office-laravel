@@ -12,7 +12,9 @@ class Kernel extends ConsoleKernel
      */
     protected function schedule(Schedule $schedule): void
     {
-        // $schedule->command('inspire')->hourly();
+        $schedule->command('p4i:reconcile-exports --stale-minutes=15')
+            ->everyFifteenMinutes()
+            ->withoutOverlapping();
     }
 
     /**
