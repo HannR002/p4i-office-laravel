@@ -152,6 +152,7 @@ class StagingUatPreparationTest extends TestCase
         DB::statement('SET FOREIGN_KEY_CHECKS = 0');
         $tables = [
             'document_exports',
+            'incoming_letters',
             'approval_steps',
             'approval_requests',
             'signatory_mandates',
@@ -294,10 +295,30 @@ class StagingUatPreparationTest extends TestCase
         $dlDocx->assertStatus(200);
         $this->assertStringContainsString('DRAF_', $dlDocx->headers->get('content-disposition'));
 
-        // UAT-11: Pengguna mencari surat di arsip
+        // UAT-11: Pencarian arsip dan verifikasi Buku Agenda Ganda (Surat Keluar & Surat Masuk)
         $searchRes = $this->actingAs($this->staffUser)->get(route('archives.index', ['search' => 'Kesbangpol']));
         $searchRes->assertStatus(200);
         $searchRes->assertSee('Permohonan Izin Survei Lapangan Desa Binaan UAT');
+
+        $outgoingAgendaRes = $this->actingAs($this->staffUser)->get(route('agenda.outgoing'));
+        $outgoingAgendaRes->assertStatus(200);
+        $outgoingAgendaRes->assertSee('Permohonan Izin Survei Lapangan Desa Binaan UAT');
+
+        $storeIncomingRes = $this->actingAs($this->staffUser)->post(route('agenda.incoming.store'), [
+            'sender_name' => 'Badan Riset dan Inovasi Nasional (BRIN)',
+            'sender_letter_number' => 'B-402/BRIN/XI/2026',
+            'letter_date' => '2026-11-10',
+            'received_date' => '2026-11-12',
+            'subject' => 'Undangan Koordinasi Riset Pembangunan Daerah UAT',
+            'classification' => 'INTERNAL',
+            'recipient_unit_id' => $this->unitRiset->id,
+            'notes' => 'Disposisi ke Divisi Riset untuk tindak lanjut UAT.',
+        ]);
+        $storeIncomingRes->assertRedirect(route('agenda.incoming'));
+
+        $incomingAgendaRes = $this->actingAs($this->staffUser)->get(route('agenda.incoming'));
+        $incomingAgendaRes->assertStatus(200);
+        $incomingAgendaRes->assertSee('Undangan Koordinasi Riset Pembangunan Daerah UAT');
 
         // UAT-12: Pengguna tidak berwenang ditolak mengakses surat RAHASIA
         $this->actingAs($this->staffUser)->post(route('letters.store'), [
@@ -321,6 +342,11 @@ class StagingUatPreparationTest extends TestCase
         $adminAuditRes->assertSee('DOCUMENT_EXPORTED');
         $adminAuditRes->assertSee('DOCUMENT_DOWNLOADED');
 
+        // Verifikasi logout sesi pengguna (UAT-01 Login & Logout)
+        $logoutRes = $this->actingAs($this->staffUser)->post(route('logout'));
+        $logoutRes->assertRedirect('/login');
+        $this->assertGuest();
+
         // UAT-14: Pengguna menguji pemulihan arsip pada lingkungan pengujian
         $disk = Storage::disk('private_archives');
         $backupBytes = $disk->get($pdfExport->file_path);
@@ -343,7 +369,7 @@ class StagingUatPreparationTest extends TestCase
     }
 
     /**
-     * STG-08, STG-09, STG-10, STG-15: Pemeriksaan preflight kesiapan teknis lingkungan.
+     * STG-08, STG-09, STG-10, STG-15, STB-01..STB-07: Pemeriksaan preflight kesiapan teknis lingkungan (Tahap P0).
      */
     public function test_stg_preflight_command_verifies_database_triggers_storage_and_safety_guards(): void
     {
@@ -353,12 +379,16 @@ class StagingUatPreparationTest extends TestCase
         $this->assertEquals(0, $exitCode);
         $this->assertTrue($output['php_compatible']);
         $this->assertTrue($output['all_extensions_loaded']);
+        $this->assertTrue($output['composer_lock_present']);
         $this->assertTrue($output['innodb_supported']);
         $this->assertTrue($output['all_triggers_present']);
         $this->assertTrue($output['private_storage_outside_public']);
+        $this->assertTrue($output['scheduler_registered']);
         $this->assertFalse($output['official_numbering_active']);
         $this->assertEquals(0, $output['non_null_official_numbers']);
         $this->assertTrue($output['safety_invariants_intact']);
+        $this->assertEquals('PENDING', $output['hostinger_authorization_gate']);
+        $this->assertEquals('LOCAL_PREPARATION_COMPLETE_STAGING_AUTHORIZATION_PENDING', $output['staging_authorization_status']);
         $this->assertEquals('LOCAL_PREPARATION_COMPLETE_HOSTINGER_STAGING_BLOCKED', $output['staging_deployment_status']);
     }
 }

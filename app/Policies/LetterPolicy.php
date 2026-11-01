@@ -91,9 +91,10 @@ class LetterPolicy
             return false;
         }
 
-        // 3. Hak kepemilikan atau hak administratif
-        if ($letter->classification === 'RAHASIA') {
-            return $letter->author_id === $user->id || $user->isSystemAdmin();
+        // 3. Hak kepemilikan atau hak administratif (Dokumen RAHASIA/CONFIDENTIAL wajib melewati validasi mandat)
+        if (in_array($letter->classification, ['CONFIDENTIAL', 'RAHASIA'], true)) {
+            return $letter->author_id === $user->id
+                || app(MandateValidationService::class)->canAccessConfidential($user, $letter, 'VIEW');
         }
 
         return $letter->author_id === $user->id || $user->isSystemAdmin();
@@ -108,8 +109,16 @@ class LetterPolicy
             return false;
         }
 
-        return $letter->status === 'DRAFT'
-            && ($letter->author_id === $user->id || $user->isSystemAdmin());
+        if ($letter->status !== 'DRAFT') {
+            return false;
+        }
+
+        if (in_array($letter->classification, ['CONFIDENTIAL', 'RAHASIA'], true)) {
+            return $letter->author_id === $user->id
+                || app(MandateValidationService::class)->canAccessConfidential($user, $letter, 'VIEW');
+        }
+
+        return $letter->author_id === $user->id || $user->isSystemAdmin();
     }
 
     /**

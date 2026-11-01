@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use Illuminate\Console\Command;
+use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 
@@ -24,7 +25,10 @@ class StagingPreflightCommand extends Command
 
     public function handle(): int
     {
-        $requiredExtensions = ['pdo_mysql', 'mbstring', 'xml', 'zip', 'gd', 'openssl', 'fileinfo'];
+        $requiredExtensions = [
+            'pdo_mysql', 'mbstring', 'xml', 'zip', 'gd', 'openssl', 'fileinfo',
+            'ctype', 'json', 'tokenizer', 'dom', 'filter', 'hash', 'session',
+        ];
         $extensionsReport = [];
         $allExtensionsLoaded = true;
 
@@ -34,6 +38,23 @@ class StagingPreflightCommand extends Command
             if (! $loaded) {
                 $allExtensionsLoaded = false;
             }
+        }
+
+        // Composer lock check (Tahap P0)
+        $composerLockPresent = is_file(base_path('composer.lock'));
+
+        // Scheduler registration check (Tahap P0 / F.4)
+        $schedulerRegistered = false;
+        try {
+            $schedule = app(Schedule::class);
+            foreach ($schedule->events() as $event) {
+                if (str_contains((string) $event->command, 'p4i:reconcile-exports')) {
+                    $schedulerRegistered = true;
+                    break;
+                }
+            }
+        } catch (\Throwable) {
+            $schedulerRegistered = false;
         }
 
         // Database & InnoDB check
@@ -78,7 +99,10 @@ class StagingPreflightCommand extends Command
         );
 
         // Safety Guards Check
-        $officialNumberingActive = (bool) config('features.official_numbering', false) || (bool) config('p4i.official_numbering_active', false);
+        $officialNumberingActive = (bool) config('features.official_numbering_active', false)
+            || (bool) config('features.official_numbering', false)
+            || (bool) config('p4i.official_numbering_active', false);
+        $hostingerStagingVerified = (bool) config('features.hostinger_staging_verified', false);
         $nonNullOfficialNumbers = 0;
         try {
             $nonNullOfficialNumbers = DB::table('letters')->whereNotNull('official_number')->count();
@@ -91,6 +115,8 @@ class StagingPreflightCommand extends Command
             'php_compatible' => version_compare(PHP_VERSION, '8.3.0', '>='),
             'extensions' => $extensionsReport,
             'all_extensions_loaded' => $allExtensionsLoaded,
+            'composer_lock_present' => $composerLockPresent,
+            'scheduler_registered' => $schedulerRegistered,
             'db_version' => $dbVersion,
             'innodb_supported' => $innoDbSupported,
             'immutability_triggers' => $triggersPresent,
@@ -101,6 +127,8 @@ class StagingPreflightCommand extends Command
             'safety_invariants_intact' => (! $officialNumberingActive && $nonNullOfficialNumbers === 0),
             'memory_limit' => ini_get('memory_limit'),
             'max_execution_time' => ini_get('max_execution_time'),
+            'hostinger_authorization_gate' => $hostingerStagingVerified ? 'AUTHORIZED' : 'PENDING',
+            'staging_authorization_status' => 'LOCAL_PREPARATION_COMPLETE_STAGING_AUTHORIZATION_PENDING',
             'staging_deployment_status' => 'LOCAL_PREPARATION_COMPLETE_HOSTINGER_STAGING_BLOCKED',
         ];
 

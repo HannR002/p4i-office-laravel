@@ -14,6 +14,7 @@ use App\Models\User;
 use App\Services\DocumentExportService;
 use Carbon\Carbon;
 use DomainException;
+use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -482,6 +483,237 @@ class ArchiveTransactionConcurrencyTest extends TestCase
             'event_type' => 'DOCUMENT_EXPORT_RECONCILED_ERROR',
             'entity_type' => 'document_exports',
             'entity_id' => $crashExportId,
+        ]);
+    }
+
+    /**
+     * M5B-B (Section F.4): Verifikasi eksekusi nyata `php artisan schedule:run` pada batas interval 15 menit
+     * serta mekanisme proteksi lock `withoutOverlapping()` agar dua eksekusi rekonsiliasi tidak bertabrakan.
+     */
+    public function test_m5b_b_scheduler_schedule_run_executes_reconciliation_and_enforces_without_overlapping_mutex(): void
+    {
+        $letter = $this->createTestLetter();
+        $revision = $letter->latestRevision;
+        $disk = Storage::disk('private_archives');
+        $year = Carbon::now()->format('Y');
+
+        // Tetapkan waktu simulasi tepat pada menit ke-15 (sesuai ekspresi cron */15 * * * *)
+        Carbon::setTestNow(Carbon::create(2026, 11, 1, 12, 15, 0));
+
+        try {
+            // 1. Siapkan pekerjaan PENDING macet (30 menit lalu) dengan berkas parsial rusak
+            $staleScheduleExport = DocumentExport::create([
+                'organization_id' => $this->org->id,
+                'letter_id' => $letter->id,
+                'revision_id' => $revision->id,
+                'revision_version' => $revision->version,
+                'content_hash' => hash('sha256', json_encode($revision->content)),
+                'format' => 'PDF',
+                'status' => 'PENDING',
+                'idempotency_key' => 'm5bb_schedule_run_1',
+                'exported_by' => $this->author->id,
+            ]);
+            $relPath1 = "{$this->org->id}/{$year}/PDF/{$staleScheduleExport->id}.pdf";
+            $disk->put($relPath1, '%PDF-1.4 PARTIAL STALE SCHEDULE RUN 1');
+            DB::table('document_exports')->where('id', $staleScheduleExport->id)->update([
+                'file_path' => $relPath1,
+                'created_at' => Carbon::now()->subMinutes(30),
+                'updated_at' => Carbon::now()->subMinutes(30),
+            ]);
+
+            // Jalankan `php artisan schedule:run` (bukan sekadar schedule:list)
+            $this->artisan('schedule:run')->assertExitCode(0);
+
+            // Verifikasi bahwa `schedule:run` benar-benar mengeksekusi p4i:reconcile-exports
+            $this->assertEquals('ERROR', $staleScheduleExport->fresh()->status);
+            $this->assertFalse($disk->exists($relPath1));
+
+            // 2. Uji proteksi `withoutOverlapping()` menggunakan mutex scheduler Laravel
+            $schedule = app(Schedule::class);
+            $reconcileEvent = collect($schedule->events())->first(function ($event) {
+                return str_contains((string) $event->command, 'p4i:reconcile-exports');
+            });
+
+            $this->assertNotNull($reconcileEvent, 'Event p4i:reconcile-exports harus terdaftar di Schedule.');
+            $this->assertTrue($reconcileEvent->withoutOverlapping, 'Event harus mengaktifkan withoutOverlapping().');
+            $this->assertEquals('*/15 * * * *', $reconcileEvent->expression);
+
+            // Kunci mutex seolah proses rekonsiliasi pertama masih berjalan
+            $this->assertTrue($reconcileEvent->mutex->create($reconcileEvent));
+
+            $blockedByMutexExport = DocumentExport::create([
+                'organization_id' => $this->org->id,
+                'letter_id' => $letter->id,
+                'revision_id' => $revision->id,
+                'revision_version' => $revision->version,
+                'content_hash' => hash('sha256', json_encode($revision->content)),
+                'format' => 'PDF',
+                'status' => 'PENDING',
+                'idempotency_key' => 'm5bb_schedule_mutex_blocked',
+                'exported_by' => $this->author->id,
+            ]);
+            $relPath2 = "{$this->org->id}/{$year}/PDF/{$blockedByMutexExport->id}.pdf";
+            $disk->put($relPath2, '%PDF-1.4 PARTIAL STALE SCHEDULE RUN 2');
+            DB::table('document_exports')->where('id', $blockedByMutexExport->id)->update([
+                'file_path' => $relPath2,
+                'created_at' => Carbon::now()->subMinutes(30),
+                'updated_at' => Carbon::now()->subMinutes(30),
+            ]);
+
+            // Saat mutex terkunci, `schedule:run` tidak boleh menjalankan instance kedua yang tumpang-tindih
+            $this->artisan('schedule:run')->assertExitCode(0);
+            $this->assertEquals(
+                'PENDING',
+                $blockedByMutexExport->fresh()->status,
+                'withoutOverlapping() harus mencegah eksekusi tumpang-tindih saat mutex aktif.'
+            );
+
+            // Lepaskan mutex lalu jalankan kembali `schedule:run`
+            $reconcileEvent->mutex->forget($reconcileEvent);
+            $this->artisan('schedule:run')->assertExitCode(0);
+
+            $this->assertEquals(
+                'ERROR',
+                $blockedByMutexExport->fresh()->status,
+                'Setelah mutex dilepas, schedule:run berikutnya harus memproses rekonsiliasi.'
+            );
+            $this->assertFalse($disk->exists($relPath2));
+        } finally {
+            Carbon::setTestNow();
+        }
+    }
+
+    /**
+     * M5B-B (Section F.5): Membedakan dan menguji dua mode kegagalan tambahan secara nyata:
+     * - Mode 3: Proses dihentikan paksa oleh sistem operasi dari luar saat sedang aktif berjalan (Process::stop / OS kill).
+     * - Mode 4: Kegagalan fatal batas sumber daya / memori hosting (PHP Fatal Error: Allowed memory size exhausted).
+     */
+    public function test_m5b_b_crash_recovery_distinguishes_os_forced_kill_and_fatal_timeout_exhaustion(): void
+    {
+        $letter = $this->createTestLetter();
+        $revision = $letter->latestRevision;
+        $disk = Storage::disk('private_archives');
+        $year = Carbon::now()->format('Y');
+
+        // =========================================================================
+        // MODE 3: Penghentian Paksa oleh Sistem Operasi (OS Forced Kill saat aktif)
+        // =========================================================================
+        $readyMarkerFile = sys_get_temp_dir().DIRECTORY_SEPARATOR.'p4i_os_kill_ready_'.uniqid().'.marker';
+
+        $osKillWorkerCode = sprintf(
+            'require %s; $app = require_once %s; $kernel = $app->make(Illuminate\Contracts\Console\Kernel::class); $kernel->bootstrap(); '.
+            'config(["database.connections.mysql.database" => %s]); Illuminate\Support\Facades\DB::purge("mysql"); '.
+            '$exp = App\Models\DocumentExport::create(["organization_id" => %s, "letter_id" => %s, "revision_id" => %s, "revision_version" => 1, "content_hash" => %s, "format" => "PDF", "file_hash" => %s, "status" => "PENDING", "idempotency_key" => "os_forced_kill_worker", "exported_by" => %s]); '.
+            '$rel = %s . "/" . %s . "/PDF/" . $exp->id . ".pdf"; '.
+            '$exp->update(["file_path" => $rel]); '.
+            '$abs = Illuminate\Support\Facades\Storage::disk("private_archives")->path($rel); '.
+            'if (!is_dir(dirname($abs))) { mkdir(dirname($abs), 0775, true); } '.
+            'file_put_contents($abs, "%%PDF-1.4 PARTIAL STREAM BEFORE OS FORCED KILL"); '.
+            'file_put_contents(%s, $exp->id); '.
+            'sleep(30);',
+            var_export(base_path('vendor/autoload.php'), true),
+            var_export(base_path('bootstrap/app.php'), true),
+            var_export(config('database.connections.mysql.database'), true),
+            var_export($this->org->id, true),
+            var_export($letter->id, true),
+            var_export($revision->id, true),
+            var_export(hash('sha256', json_encode($revision->content)), true),
+            var_export(str_repeat('e', 64), true),
+            var_export($this->author->id, true),
+            var_export($this->org->id, true),
+            var_export($year, true),
+            var_export($readyMarkerFile, true)
+        );
+
+        $osKillProcess = new Process([PHP_BINARY, '-r', $osKillWorkerCode], base_path());
+        $osKillProcess->start();
+
+        // Tunggu hingga worker benar-benar menulis metadata PENDING dan berkas parsial (maksimal 8 detik)
+        $waitLoops = 0;
+        while (! file_exists($readyMarkerFile) && $osKillProcess->isRunning() && $waitLoops < 80) {
+            usleep(100000);
+            $waitLoops++;
+        }
+
+        $this->assertTrue(file_exists($readyMarkerFile), 'Worker harus mencapai titik penulisan berkas parsial sebelum dihentikan OS.');
+
+        // Hentikan paksa proses dari level sistem operasi (SIGKILL / TerminateProcess)
+        $osKillProcess->stop(0, 9);
+        @unlink($readyMarkerFile);
+
+        $this->assertFalse($osKillProcess->isSuccessful(), 'Proses yang dihentikan paksa oleh OS tidak boleh berstatus sukses.');
+
+        $osKilledExport = DocumentExport::where('idempotency_key', 'os_forced_kill_worker')->first();
+        $this->assertNotNull($osKilledExport);
+        $this->assertEquals('PENDING', $osKilledExport->status);
+        $this->assertTrue($disk->exists($osKilledExport->file_path));
+
+        // =========================================================================
+        // MODE 4: Fatal Error Batas Sumber Daya Hosting (Memory / Resource Exhaustion)
+        // =========================================================================
+        $oomWorkerCode = sprintf(
+            'ini_set("display_errors", "0"); '.
+            'require %s; $app = require_once %s; $kernel = $app->make(Illuminate\Contracts\Console\Kernel::class); $kernel->bootstrap(); '.
+            'config(["database.connections.mysql.database" => %s]); Illuminate\Support\Facades\DB::purge("mysql"); '.
+            '$exp = App\Models\DocumentExport::create(["organization_id" => %s, "letter_id" => %s, "revision_id" => %s, "revision_version" => 1, "content_hash" => %s, "format" => "PDF", "file_hash" => %s, "status" => "PENDING", "idempotency_key" => "fatal_resource_limit_worker", "exported_by" => %s]); '.
+            '$rel = %s . "/" . %s . "/PDF/" . $exp->id . ".pdf"; '.
+            '$exp->update(["file_path" => $rel]); '.
+            '$abs = Illuminate\Support\Facades\Storage::disk("private_archives")->path($rel); '.
+            'if (!is_dir(dirname($abs))) { mkdir(dirname($abs), 0775, true); } '.
+            'file_put_contents($abs, "%%PDF-1.4 PARTIAL STREAM BEFORE FATAL MEMORY EXHAUSTION"); '.
+            'ini_set("memory_limit", "32M"); '.
+            '$exhaust = str_repeat("X", 64 * 1024 * 1024);',
+            var_export(base_path('vendor/autoload.php'), true),
+            var_export(base_path('bootstrap/app.php'), true),
+            var_export(config('database.connections.mysql.database'), true),
+            var_export($this->org->id, true),
+            var_export($letter->id, true),
+            var_export($revision->id, true),
+            var_export(hash('sha256', json_encode($revision->content)), true),
+            var_export(str_repeat('d', 64), true),
+            var_export($this->author->id, true),
+            var_export($this->org->id, true),
+            var_export($year, true)
+        );
+
+        $oomProcess = new Process([PHP_BINARY, '-r', $oomWorkerCode], base_path());
+        $oomProcess->run();
+
+        $this->assertFalse($oomProcess->isSuccessful(), 'Proses yang mengalami fatal resource exhaustion harus keluar dengan kode non-zero.');
+
+        $oomExport = DocumentExport::where('idempotency_key', 'fatal_resource_limit_worker')->first();
+        $this->assertNotNull($oomExport);
+        $this->assertEquals('PENDING', $oomExport->status);
+        $this->assertTrue($disk->exists($oomExport->file_path));
+
+        // Simulasikan kedua proses macet tersebut telah melewati batas stale 15 menit
+        DB::table('document_exports')->whereIn('id', [$osKilledExport->id, $oomExport->id])->update([
+            'created_at' => now()->subMinutes(25),
+            'updated_at' => now()->subMinutes(25),
+        ]);
+
+        // Jalankan rekonsiliasi terjadwal
+        $this->artisan('p4i:reconcile-exports', [
+            '--stale-minutes' => 15,
+            '--org' => $this->org->id,
+        ])->assertExitCode(0);
+
+        // Verifikasi kedua mode kegagalan telah direkonsiliasi ke ERROR, berkas parsial dihapus, dan audit tercatat
+        $this->assertEquals('ERROR', $osKilledExport->fresh()->status);
+        $this->assertFalse($disk->exists($osKilledExport->file_path));
+
+        $this->assertEquals('ERROR', $oomExport->fresh()->status);
+        $this->assertFalse($disk->exists($oomExport->file_path));
+
+        $this->assertDatabaseHas('audit_events', [
+            'organization_id' => $this->org->id,
+            'event_type' => 'DOCUMENT_EXPORT_RECONCILED_ERROR',
+            'entity_id' => $osKilledExport->id,
+        ]);
+        $this->assertDatabaseHas('audit_events', [
+            'organization_id' => $this->org->id,
+            'event_type' => 'DOCUMENT_EXPORT_RECONCILED_ERROR',
+            'entity_id' => $oomExport->id,
         ]);
     }
 }
