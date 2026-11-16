@@ -1,0 +1,232 @@
+{
+  "project": "P4I Office v1.0",
+  "phase": "P1-C (Controlled Laravel Staging Deployment)",
+  "evaluation_date": "2026-11-16T17:35:00+07:00",
+  "final_status": "STAGING DEPLOYED — TECHNICAL VERIFICATION PASSED — MANUAL UAT PENDING",
+  "governance": {
+    "implementer": "Argon — Reasoning High",
+    "architect_and_auditor": "GPT-6",
+    "administrative_authority": "Ketua dan Pengurus Yayasan P4I"
+  },
+  "deployment_target": {
+    "hosting_provider": "Hostinger Business Web Hosting",
+    "account_username": "u239415845",
+    "order_id": 1009584994,
+    "server_ipv4": "153.92.8.139",
+    "ssh_port": 65002,
+    "website_domain": "staging-office.p4ijournal.org",
+    "staging_url": "https://staging-office.p4ijournal.org",
+    "core_path": "/home/u239415845/p4i-office-staging",
+    "public_path": "/home/u239415845/domains/staging-office.p4ijournal.org/public_html"
+  },
+  "runtime_environment": {
+    "php_web_version": "8.3.36",
+    "php_cli_path": "/opt/alt/php83/usr/bin/php",
+    "php_cli_version": "8.3.36",
+    "composer_version": "2.9.8",
+    "laravel_version": "13.39.0",
+    "web_server": "LiteSpeed",
+    "app_env": "staging",
+    "app_debug": false,
+    "session_driver": "file",
+    "session_cookie": "p4i_staging_session",
+    "session_secure": true,
+    "mail_mailer": "log"
+  },
+  "release_package": {
+    "branch": "feat/stage-p1c-staging-deployment",
+    "commit_deployed": "d222e25ef407f1e527cf7b59ccd6834e80106fac",
+    "tarball_name": "p4i-office-core-p1c.tar.gz",
+    "tarball_size_bytes": 181827,
+    "tarball_sha256": "8010be898009c437fab55559df17305525ca941c8c339759a3a10a533ca3233e",
+    "integrity_verified": true
+  },
+  "database": {
+    "name": "u239415845_p4i_staging",
+    "user": "u239415845_p4i_staging",
+    "engine": "11.8.9-MariaDB-log",
+    "host": "127.0.0.1:3306",
+    "total_tables": 27,
+    "migrations_count": 9,
+    "migrations_status": "ALL_APPLIED",
+    "triggers_active": [
+      {
+        "trigger_name": "trg_letter_revisions_no_update",
+        "table": "letter_revisions",
+        "event": "UPDATE",
+        "timing": "BEFORE"
+      },
+      {
+        "trigger_name": "trg_letter_revisions_no_delete",
+        "table": "letter_revisions",
+        "event": "DELETE",
+        "timing": "BEFORE"
+      },
+      {
+        "trigger_name": "trg_audit_events_no_update",
+        "table": "audit_events",
+        "event": "UPDATE",
+        "timing": "BEFORE"
+      },
+      {
+        "trigger_name": "trg_audit_events_no_delete",
+        "table": "audit_events",
+        "event": "DELETE",
+        "timing": "BEFORE"
+      }
+    ],
+    "trigger_tests": {
+      "audit_update": "BLOCKED: SQLSTATE[45000]: 1644 Audit events are strictly append-only and cannot be updated.",
+      "audit_delete": "BLOCKED: SQLSTATE[45000]: 1644 Audit events are strictly append-only and cannot be deleted.",
+      "revision_update": "BLOCKED: SQLSTATE[45000]: 1644 Letter revisions are strictly immutable and cannot be updated.",
+      "revision_delete": "BLOCKED: SQLSTATE[45000]: 1644 Letter revisions are strictly immutable and cannot be deleted."
+    }
+  },
+  "safety_invariants": {
+    "official_numbering_active": false,
+    "letters_total": 3,
+    "letters_with_official_number": 0,
+    "all_official_numbers_null": true,
+    "issued_status_count": 0,
+    "watermark_text": "DRAF — BELUM RESMI — TIDAK BERLAKU SEBAGAI SURAT KELUAR",
+    "outbound_emails_intercepted_by_log": true
+  },
+  "synthetic_uat_seeder": {
+    "seeder_class": "Database\\Seeders\\StagingUatSeeder",
+    "users_count": 8,
+    "users": [
+      {"email": "admin@p4i.or.id", "display_name": "Administrator Yayasan", "status": "ACTIVE"},
+      {"email": "pengurus@p4i.or.id", "display_name": "Drs. H. Mulyadi, M.M. (Ketua Yayasan)", "status": "ACTIVE"},
+      {"email": "staf@p4i.or.id", "display_name": "Staf Sekretariat P4I", "status": "ACTIVE"},
+      {"email": "reviewer@p4i.or.id", "display_name": "Dr. Penelaah Riset, M.Si.", "status": "ACTIVE"},
+      {"email": "staf.uat@p4i.or.id", "display_name": "Rina Kartika (Staf UAT)", "status": "ACTIVE"},
+      {"email": "reviewer.uat@p4i.or.id", "display_name": "Dr. Bambang Sutrisno (Pemeriksa Bermandat UAT)", "status": "ACTIVE"},
+      {"email": "unauth.uat@p4i.or.id", "display_name": "Dedi Kurniawan (Reviewer Tanpa Mandat UAT)", "status": "ACTIVE"},
+      {"email": "admin.uat@p4i.or.id", "display_name": "Agus Setiawan (Admin UAT)", "status": "ACTIVE"}
+    ],
+    "uat_template_code": "KET-UAT"
+  },
+  "live_http_verification": {
+    "endpoints": [
+      {
+        "url": "https://staging-office.p4ijournal.org/",
+        "http_status": 302,
+        "redirect_location": "https://staging-office.p4ijournal.org/login",
+        "result": "PASS"
+      },
+      {
+        "url": "https://staging-office.p4ijournal.org/login",
+        "http_status": 200,
+        "content_type": "text/html; charset=utf-8",
+        "contains_login_form": true,
+        "result": "PASS"
+      },
+      {
+        "url": "https://staging-office.p4ijournal.org/login (POST credentials)",
+        "http_status": 302,
+        "redirect_location": "https://staging-office.p4ijournal.org/dashboard",
+        "authenticated_user": "staf.uat@p4i.or.id",
+        "result": "PASS"
+      },
+      {
+        "url": "https://staging-office.p4ijournal.org/dashboard",
+        "http_status": 200,
+        "contains_display_name": "Rina Kartika (Staf UAT)",
+        "result": "PASS"
+      },
+      {
+        "url": "https://staging-office.p4ijournal.org/letters",
+        "http_status": 200,
+        "contains_watermark_banner": true,
+        "result": "PASS"
+      },
+      {
+        "url": "https://staging-office.p4ijournal.org/letters/01a1e3e0-35d8-72b4-bec9-0df1c54c69e7/preview",
+        "http_status": 200,
+        "watermark_overlay_present": true,
+        "draft_disclaimer_present": true,
+        "result": "PASS"
+      }
+    ]
+  },
+  "document_exports_and_downloads": {
+    "pdf": {
+      "export_id": "01a1e3e7-6bb2-70dc-8c0d-92fad3414b62",
+      "letter_id": "01a1e3e0-35d8-72b4-bec9-0df1c54c69e7",
+      "format": "PDF",
+      "status": "READY",
+      "mime_type": "application/pdf",
+      "file_size_bytes": 3225,
+      "db_file_hash": "92df438223aae532b8c665d0639eba80a87fbd4d7b38fe5f0ef00bd1fc19ce48",
+      "http_download_status": 200,
+      "downloaded_bytes": 3225,
+      "downloaded_sha256": "92df438223aae532b8c665d0639eba80a87fbd4d7b38fe5f0ef00bd1fc19ce48",
+      "magic_header": "%PDF-",
+      "decompressed_watermark_verified": true,
+      "result": "PASS"
+    },
+    "docx": {
+      "export_id": "01a1e3e8-29c4-7155-aeef-1ed4d8fb35c9",
+      "letter_id": "01a1e3e0-35d8-72b4-bec9-0df1c54c69e7",
+      "format": "DOCX",
+      "status": "READY",
+      "mime_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "file_size_bytes": 9325,
+      "db_file_hash": "50767b2e11a8372e070784684b2c7e3f8fbd9ea73dc42eedf69d36aacfbb9881",
+      "http_download_status": 200,
+      "downloaded_bytes": 9325,
+      "downloaded_sha256": "50767b2e11a8372e070784684b2c7e3f8fbd9ea73dc42eedf69d36aacfbb9881",
+      "magic_header": "PK (50-4B-03-04)",
+      "xml_header_footer_watermark_verified": true,
+      "result": "PASS"
+    }
+  },
+  "exposure_security_checks": [
+    {
+      "path": "/.env",
+      "http_status": 403,
+      "status": "BLOCKED",
+      "result": "PASS"
+    },
+    {
+      "path": "/.git/config",
+      "http_status": 403,
+      "status": "BLOCKED",
+      "result": "PASS"
+    },
+    {
+      "path": "/composer.json",
+      "http_status": 404,
+      "status": "NOT_EXPOSED",
+      "result": "PASS"
+    },
+    {
+      "path": "/composer.lock",
+      "http_status": 404,
+      "status": "NOT_EXPOSED",
+      "result": "PASS"
+    },
+    {
+      "path": "/storage/app/private/archives/",
+      "http_status": 404,
+      "status": "NOT_EXPOSED",
+      "result": "PASS"
+    }
+  ],
+  "cron_scheduler": {
+    "uid": "pRk1dnIGfn",
+    "schedule": "* * * * *",
+    "command": "/opt/alt/php83/usr/bin/php /home/u239415845/p4i-office-staging/artisan schedule:run >> /home/u239415845/p4i-office-staging/storage/logs/scheduler.log 2>&1",
+    "status": "ACTIVE",
+    "verified_untouched_crons": [
+      {"uid": "FtTkznhbHz", "command": "/bin/sh /home/u239415845/scripts/p4i/run_queue.sh"},
+      {"uid": "lrRWdwWnOY", "command": "/bin/sh /home/u239415845/scripts/p4i/run_scheduler.sh"}
+    ]
+  },
+  "production_boundary_audit": {
+    "production_domains_untouched": ["p4ijournal.org", "journal.p4ijournal.org", "publisher.p4ijournal.org"],
+    "production_databases_untouched": ["u239415845_ojs", "u239415845_publisher", "u239415845_publisher_new"],
+    "production_crons_untouched": true,
+    "all_boundaries_preserved": true
+  }
+}
